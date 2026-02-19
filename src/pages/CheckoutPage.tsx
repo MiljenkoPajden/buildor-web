@@ -161,7 +161,8 @@ export function CheckoutPage(): JSX.Element {
               clientId: clientId,
               currency: PRODUCT.currency,
               intent: 'capture',
-              // A11Y: sandbox mode for testing
+              // NOTE: must explicitly list components or PayPalButtons won't load
+              components: 'buttons',
               ...(paypalMode === 'sandbox' ? { 'data-namespace': 'paypal_sdk' } : {}),
             }}
           >
