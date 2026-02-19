@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -8,15 +8,504 @@ import {
   fetchAppConfig,
   saveAppConfig,
 } from '../lib/supabase';
+import { getSupabaseClient } from '../lib/supabase';
+
+// DS: no type-gen yet — cast until Supabase types are generated
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnySupabase = { from: (table: string) => any; auth: any };
 import { AdminMockStatic } from './AdminMockStatic';
 
 const MOCK_STORAGE_KEY = 'buildor_admin_show_mock';
 
-export type AdminPageId = 'api' | 'users' | 'dashboard' | 'projects' | 'deliverables' | 'usage' | 'billing' | 'settings';
+export type AdminPageId = 'api' | 'users' | 'clients' | 'dashboard' | 'projects' | 'deliverables' | 'usage' | 'billing' | 'settings';
+
+// ─── Client Portal Types ──────────────────────────────────────────────────────
+
+interface ClientRecord {
+  id: string;
+  name: string;
+  company: string | null;
+  email: string;
+  logo_url: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+interface InviteRecord {
+  id: string;
+  client_id: string;
+  token: string;
+  role: 'owner' | 'contributor' | 'accountant';
+  status: 'pending' | 'accepted' | 'revoked';
+  expires_at: string;
+}
+
+// ─── Admin Clients Section ────────────────────────────────────────────────────
+
+function AdminClientsSection(): JSX.Element {
+  const [clients, setClients] = useState<ClientRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // New client form
+  const [newName, setNewName] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [newCompany, setNewCompany] = useState('');
+  const [newNotes, setNewNotes] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  // Invite state: clientId → InviteRecord[]
+  const [invites, setInvites] = useState<Record<string, InviteRecord[]>>({});
+  const [inviteRole, setInviteRole] = useState<Record<string, 'owner' | 'contributor' | 'accountant'>>({});
+  const [generatingFor, setGeneratingFor] = useState<string | null>(null);
+  const [copiedToken, setCopiedToken] = useState<string | null>(null);
+
+  // Track expanded client cards
+  const [expandedClient, setExpandedClient] = useState<string | null>(null);
+
+  const loadedRef = useRef(false);
+
+  // Load clients from Supabase
+  useEffect(() => {
+    if (loadedRef.current) return;
+    loadedRef.current = true;
+    void loadClients();
+  }, []);
+
+  async function loadClients(): Promise<void> {
+    setLoading(true);
+    setError(null);
+    try {
+      const sb = getSupabaseClient() as AnySupabase | null;
+      if (!sb) throw new Error('Supabase not configured');
+      const { data, error: err } = await sb
+        .from('clients')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (err) throw err;
+      setClients((data ?? []) as ClientRecord[]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load clients');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadInvitesForClient(clientId: string): Promise<void> {
+    try {
+      const sb = getSupabaseClient() as AnySupabase | null;
+      if (!sb) return;
+      const { data, error: err } = await sb
+        .from('client_invites')
+        .select('*')
+        .eq('client_id', clientId)
+        .order('created_at', { ascending: false });
+      if (err) throw err;
+      setInvites((prev) => ({ ...prev, [clientId]: (data ?? []) as InviteRecord[] }));
+    } catch {
+      // Silently fail — table might not exist yet
+    }
+  }
+
+  async function handleCreateClient(e: React.FormEvent): Promise<void> {
+    e.preventDefault();
+    if (!newName.trim() || !newEmail.trim()) return;
+    setCreating(true);
+    setCreateError(null);
+    try {
+      const sb = getSupabaseClient() as AnySupabase | null;
+      if (!sb) throw new Error('Supabase not configured');
+      const { data: { user } } = await sb.auth.getUser();
+      const { data, error: err } = await sb
+        .from('clients')
+        .insert({
+          name: newName.trim(),
+          email: newEmail.trim(),
+          company: newCompany.trim() || null,
+          notes: newNotes.trim() || null,
+          created_by: user?.id ?? null,
+        })
+        .select()
+        .single();
+      if (err) throw err;
+      setClients((prev) => [data as ClientRecord, ...prev]);
+      setNewName('');
+      setNewEmail('');
+      setNewCompany('');
+      setNewNotes('');
+    } catch (e) {
+      setCreateError(e instanceof Error ? e.message : 'Failed to create client');
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function generateInvite(clientId: string): Promise<void> {
+    const role = inviteRole[clientId] ?? 'owner';
+    setGeneratingFor(clientId);
+    try {
+      const sb = getSupabaseClient() as AnySupabase | null;
+      if (!sb) throw new Error('Supabase not configured');
+      const { data, error: err } = await sb
+        .from('client_invites')
+        .insert({ client_id: clientId, role })
+        .select()
+        .single();
+      if (err) throw err;
+      setInvites((prev) => ({
+        ...prev,
+        [clientId]: [data as InviteRecord, ...(prev[clientId] ?? [])],
+      }));
+    } catch (e) {
+      console.error('Failed to generate invite:', e);
+    } finally {
+      setGeneratingFor(null);
+    }
+  }
+
+  async function revokeInvite(inviteId: string, clientId: string): Promise<void> {
+    try {
+      const sb = getSupabaseClient() as AnySupabase | null;
+      if (!sb) return;
+      await sb.from('client_invites').update({ status: 'revoked' }).eq('id', inviteId);
+      setInvites((prev) => ({
+        ...prev,
+        [clientId]: (prev[clientId] ?? []).map((inv) =>
+          inv.id === inviteId ? { ...inv, status: 'revoked' as const } : inv
+        ),
+      }));
+    } catch (e) {
+      console.error('Failed to revoke invite:', e);
+    }
+  }
+
+  function copyInviteLink(token: string): void {
+    const url = `${window.location.origin}/portal/${token}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedToken(token);
+      setTimeout(() => setCopiedToken(null), 2500);
+    });
+  }
+
+  function toggleExpand(clientId: string): void {
+    const next = expandedClient === clientId ? null : clientId;
+    setExpandedClient(next);
+    if (next && !invites[next]) {
+      void loadInvitesForClient(next);
+    }
+  }
+
+  function getInviteUrl(token: string): string {
+    return `${window.location.origin}/portal/${token}`;
+  }
+
+  function isExpired(expiresAt: string): boolean {
+    return new Date(expiresAt) < new Date();
+  }
+
+  const roleLabels: Record<string, string> = {
+    owner: 'Owner',
+    contributor: 'Contributor',
+    accountant: 'Accountant',
+  };
+
+  return (
+    <div className="admin-panel">
+      {/* ── Create Client ── */}
+      <section className="admin-card">
+        <h2 className="admin-card-title">Add Client</h2>
+        <p className="admin-desc">
+          Create a client portal. After creating, generate an invite link and send it to the client — they'll set up their profile and access their dedicated portal.
+        </p>
+        <form onSubmit={handleCreateClient} className="admin-form">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <label className="admin-label">
+              Name *
+              <input
+                type="text"
+                className="modal-field"
+                placeholder="e.g. Columbus Real Estate"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                required
+                autoComplete="off"
+              />
+            </label>
+            <label className="admin-label">
+              Email *
+              <input
+                type="email"
+                className="modal-field"
+                placeholder="client@example.com"
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
+                required
+                autoComplete="off"
+              />
+            </label>
+            <label className="admin-label">
+              Company
+              <input
+                type="text"
+                className="modal-field"
+                placeholder="Company name (optional)"
+                value={newCompany}
+                onChange={(e) => setNewCompany(e.target.value)}
+                autoComplete="off"
+              />
+            </label>
+            <label className="admin-label">
+              Notes
+              <input
+                type="text"
+                className="modal-field"
+                placeholder="Internal notes (optional)"
+                value={newNotes}
+                onChange={(e) => setNewNotes(e.target.value)}
+                autoComplete="off"
+              />
+            </label>
+          </div>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginTop: '4px' }}>
+            <button type="submit" className="btn btn-primary" disabled={creating}>
+              {creating ? 'Creating…' : 'Create Client Portal'}
+            </button>
+            {createError && <span className="admin-import-msg err">{createError}</span>}
+          </div>
+        </form>
+      </section>
+
+      {/* ── Client List ── */}
+      <section className="admin-card">
+        <h2 className="admin-card-title">Client Portals</h2>
+
+        {loading && <p className="admin-desc">Loading clients…</p>}
+        {error && (
+          <div className="admin-card admin-card-warning" style={{ margin: 0 }}>
+            <strong>Error:</strong> {error}
+            <br />
+            <small>Make sure SQL migrations 003–005 are run in Supabase Dashboard.</small>
+          </div>
+        )}
+
+        {!loading && !error && clients.length === 0 && (
+          <p className="admin-desc" style={{ color: 'var(--ds-text-muted)' }}>
+            No clients yet. Create your first one above.
+          </p>
+        )}
+
+        {clients.map((client) => {
+          const isOpen = expandedClient === client.id;
+          const clientInvites = invites[client.id] ?? [];
+          const pendingInvites = clientInvites.filter((i) => i.status === 'pending' && !isExpired(i.expires_at));
+
+          return (
+            <div
+              key={client.id}
+              style={{
+                background: 'var(--ds-bg-elevated, rgba(255,255,255,0.03))',
+                border: '1px solid var(--ds-border-default, rgba(148,163,184,0.12))',
+                borderRadius: '10px',
+                marginBottom: '10px',
+                overflow: 'hidden',
+              }}
+            >
+              {/* Client header row */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '14px 16px',
+                  cursor: 'pointer',
+                }}
+                onClick={() => toggleExpand(client.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => e.key === 'Enter' && toggleExpand(client.id)}
+                aria-expanded={isOpen}
+              >
+                {/* Avatar */}
+                <div style={{
+                  width: 36, height: 36, borderRadius: '50%',
+                  background: 'linear-gradient(135deg, rgba(56,189,248,0.2), rgba(139,92,246,0.2))',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '14px', fontWeight: 700, color: 'var(--ds-cyan, #38bdf8)',
+                  flexShrink: 0,
+                }}>
+                  {client.name.slice(0, 1).toUpperCase()}
+                </div>
+                {/* Info */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ds-text-primary, #f1f5f9)' }}>
+                    {client.name}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--ds-text-secondary, #94a3b8)', marginTop: '2px' }}>
+                    {client.company ? `${client.company} · ` : ''}{client.email}
+                  </div>
+                </div>
+                {/* Badges */}
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  {pendingInvites.length > 0 && (
+                    <span style={{
+                      padding: '2px 8px', borderRadius: '999px', fontSize: '11px',
+                      background: 'rgba(234,179,8,0.12)', color: '#eab308',
+                      border: '1px solid rgba(234,179,8,0.25)',
+                    }}>
+                      {pendingInvites.length} pending invite{pendingInvites.length > 1 ? 's' : ''}
+                    </span>
+                  )}
+                  <span style={{ color: 'var(--ds-text-muted, #64748b)', fontSize: '18px' }}>
+                    {isOpen ? '▲' : '▼'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Expanded section */}
+              {isOpen && (
+                <div style={{ borderTop: '1px solid var(--ds-border-subtle, rgba(255,255,255,0.06))', padding: '16px' }}>
+                  {/* Generate invite */}
+                  <div style={{ marginBottom: '16px' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--ds-text-secondary, #94a3b8)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Generate Invite Link
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <select
+                        className="modal-field"
+                        style={{ width: 'auto', padding: '6px 10px', fontSize: '13px' }}
+                        value={inviteRole[client.id] ?? 'owner'}
+                        onChange={(e) => setInviteRole((prev) => ({ ...prev, [client.id]: e.target.value as 'owner' | 'contributor' | 'accountant' }))}
+                      >
+                        <option value="owner">Owner</option>
+                        <option value="contributor">Contributor</option>
+                        <option value="accountant">Accountant</option>
+                      </select>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        style={{ padding: '6px 14px', fontSize: '13px' }}
+                        disabled={generatingFor === client.id}
+                        onClick={() => void generateInvite(client.id)}
+                      >
+                        {generatingFor === client.id ? 'Generating…' : '+ Generate Link'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Invite list */}
+                  {clientInvites.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--ds-text-secondary, #94a3b8)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        Invite Links
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {clientInvites.map((inv) => {
+                          const expired = isExpired(inv.expires_at);
+                          const statusColor = inv.status === 'accepted' ? '#22c55e'
+                            : inv.status === 'revoked' || expired ? '#ef4444'
+                            : '#eab308';
+                          const statusLabel = inv.status === 'accepted' ? 'Accepted'
+                            : inv.status === 'revoked' ? 'Revoked'
+                            : expired ? 'Expired'
+                            : 'Pending';
+
+                          return (
+                            <div key={inv.id} style={{
+                              display: 'flex', alignItems: 'center', gap: '10px',
+                              background: 'rgba(255,255,255,0.02)',
+                              border: '1px solid rgba(255,255,255,0.06)',
+                              borderRadius: '8px', padding: '8px 12px',
+                            }}>
+                              {/* Role chip */}
+                              <span style={{
+                                padding: '2px 8px', borderRadius: '999px', fontSize: '11px',
+                                background: 'rgba(56,189,248,0.1)', color: 'var(--ds-cyan, #38bdf8)',
+                                border: '1px solid rgba(56,189,248,0.2)', flexShrink: 0,
+                              }}>
+                                {roleLabels[inv.role]}
+                              </span>
+                              {/* URL */}
+                              <code style={{
+                                flex: 1, minWidth: 0, fontSize: '11px',
+                                color: 'var(--ds-text-secondary, #94a3b8)',
+                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                              }}>
+                                {getInviteUrl(inv.token)}
+                              </code>
+                              {/* Status */}
+                              <span style={{ fontSize: '11px', color: statusColor, flexShrink: 0 }}>
+                                {statusLabel}
+                              </span>
+                              {/* Actions */}
+                              {inv.status === 'pending' && !expired && (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="btn btn-ghost"
+                                    style={{ padding: '3px 10px', fontSize: '11px', flexShrink: 0 }}
+                                    onClick={() => copyInviteLink(inv.token)}
+                                  >
+                                    {copiedToken === inv.token ? '✓ Copied' : 'Copy'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn btn-ghost"
+                                    style={{ padding: '3px 10px', fontSize: '11px', flexShrink: 0, color: '#ef4444' }}
+                                    onClick={() => void revokeInvite(inv.id, client.id)}
+                                  >
+                                    Revoke
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Portal link */}
+                  <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                    <a
+                      href="/portal"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ fontSize: '12px', color: 'var(--ds-cyan, #38bdf8)', textDecoration: 'none' }}
+                    >
+                      Open Client Portal →
+                    </a>
+                    {client.notes && (
+                      <p style={{ fontSize: '12px', color: 'var(--ds-text-muted, #64748b)', marginTop: '6px' }}>
+                        {client.notes}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </section>
+
+      {/* Migration reminder */}
+      <div className="admin-card admin-card-warning">
+        <strong>SQL Migrations Required</strong>
+        <p>Before using Client Portals, run these in <a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer">Supabase Dashboard → SQL Editor</a>:</p>
+        <ul className="admin-list">
+          <li><code>supabase/migrations/003_client_portal.sql</code> — clients, invites, members</li>
+          <li><code>supabase/migrations/004_projects.sql</code> — projects, messages</li>
+          <li><code>supabase/migrations/005_invoices.sql</code> — invoices, line items</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
 
 const PAGE_LABELS: Record<AdminPageId, string> = {
   api: 'API & transfer',
   users: 'For users',
+  clients: 'Client Portals',
   dashboard: 'Dashboard',
   projects: 'Projects',
   deliverables: 'Deliverables',
@@ -272,7 +761,7 @@ export function AdminPage(): JSX.Element {
     }
   };
 
-  const isMockPage = page !== 'api' && page !== 'users';
+  const isMockPage = page !== 'api' && page !== 'users' && page !== 'clients';
 
   return (
     <div className="admin-app app">
@@ -359,6 +848,21 @@ export function AdminPage(): JSX.Element {
                 </svg>
               </span>
               For users
+            </button>
+            <button
+              type="button"
+              className={`nav-item ${page === 'clients' ? 'active' : ''}`}
+              onClick={() => setPage('clients')}
+            >
+              <span className="nav-icon" aria-hidden>
+                <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none">
+                  <rect x="2" y="7" width="20" height="14" rx="2" />
+                  <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
+                  <line x1="12" y1="12" x2="12" y2="16" />
+                  <line x1="10" y1="14" x2="14" y2="14" />
+                </svg>
+              </span>
+              Client Portals
             </button>
           </div>
           {showMock && (
@@ -669,6 +1173,10 @@ export function AdminPage(): JSX.Element {
                   </div>
                 </section>
               </div>
+            </div>
+
+            <div className={`page ${page === 'clients' ? 'active' : ''}`}>
+              <AdminClientsSection />
             </div>
 
             {isMockPage && (

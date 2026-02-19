@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
+import { PortalProvider } from './context/PortalContext';
 import Nav from './components/Nav';
 import Hero from './components/Hero';
 import Proof from './components/Proof';
@@ -16,6 +17,9 @@ import AdminPage from './pages/AdminPage';
 import AuthCallbackPage from './pages/AuthCallbackPage';
 import HomePageDS from './pages/HomePageDS';
 import CheckoutPage from './pages/CheckoutPage';
+import { ClientPortalPage, PortalAuthGuard } from './pages/ClientPortalPage';
+import PortalLoginPage from './pages/PortalLoginPage';
+import PortalInvitePage from './pages/PortalInvitePage';
 
 const REVEAL_OPTIONS: IntersectionObserverInit = {
   threshold: 0.06,
@@ -101,6 +105,21 @@ export default function App(): JSX.Element {
           <Route path="/admin" element={<AdminPage />} />
           <Route path="/checkout" element={<CheckoutPage />} />
           <Route path="/auth/callback" element={<AuthCallbackPage />} />
+
+          {/* Client Portal routes */}
+          <Route
+            path="/portal"
+            element={
+              <PortalAuthGuard>
+                <PortalProvider>
+                  <ClientPortalPage />
+                </PortalProvider>
+              </PortalAuthGuard>
+            }
+          />
+          <Route path="/portal/login" element={<PortalLoginPage />} />
+          <Route path="/portal/:token" element={<PortalInvitePage />} />
+
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AuthProvider>
