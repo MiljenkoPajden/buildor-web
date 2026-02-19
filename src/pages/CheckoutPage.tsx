@@ -3,8 +3,8 @@
  *
  * @features
  * - PayPal popup with card + PayPal account support
- * - Client ID loaded from Supabase app_config (set in Admin panel)
- * - No backend required — PayPal SDK handles order creation
+ * - Client ID loaded from Supabase app_config
+ * - PayPalButtons rendered only after SDK is fully resolved
  * - Success / Error / Loading / No-config states
  *
  * @tokens bg-dark, bg-panel, bg-elevated, text-primary, border-default
@@ -12,7 +12,11 @@
 
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { PayPalScriptProvider, PayPalButtons } from '@paypal/react-paypal-js';
+import {
+  PayPalScriptProvider,
+  PayPalButtons,
+  usePayPalScriptReducer,
+} from '@paypal/react-paypal-js';
 import { fetchAppConfig } from '../lib/supabase';
 
 // DS: Product definition — change for production
@@ -25,11 +29,83 @@ const PRODUCT = {
 
 type CheckoutStatus = 'loading-config' | 'ready' | 'success' | 'error' | 'no-config';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// NOTE: Must be a CHILD of PayPalScriptProvider to use usePayPalScriptReducer.
+// This component waits for the SDK script to be fully loaded before rendering
+// PayPalButtons — prevents "window.paypal.Buttons is undefined" error.
+// ─────────────────────────────────────────────────────────────────────────────
+interface PayPalButtonsWrapperProps {
+  onSuccess: () => void;
+  onError: (msg: string) => void;
+}
+
+function PayPalButtonsWrapper({ onSuccess, onError }: PayPalButtonsWrapperProps): JSX.Element {
+  const [{ isPending, isRejected }] = usePayPalScriptReducer();
+
+  if (isPending) {
+    return (
+      <div className="checkout-loading">
+        <div className="checkout-spinner" />
+        <span>Loading PayPal…</span>
+      </div>
+    );
+  }
+
+  if (isRejected) {
+    return (
+      <p className="checkout-desc" style={{ color: '#ef4444' }}>
+        Failed to load PayPal. Check your Client ID in the Admin panel.
+      </p>
+    );
+  }
+
+  return (
+    <PayPalButtons
+      style={{
+        layout: 'vertical',
+        color: 'blue',
+        shape: 'rect',
+        label: 'pay',
+        height: 48,
+      }}
+      // NOTE: createOrder uses PayPal's client-side SDK — no backend needed
+      createOrder={(_data, actions) =>
+        actions.order.create({
+          intent: 'CAPTURE',
+          purchase_units: [
+            {
+              description: PRODUCT.description,
+              amount: {
+                currency_code: PRODUCT.currency,
+                value: PRODUCT.price,
+              },
+            },
+          ],
+        })
+      }
+      onApprove={async (_data, actions) => {
+        if (!actions.order) return;
+        await actions.order.capture();
+        onSuccess();
+      }}
+      onError={(err) => {
+        onError(err instanceof Error ? err.message : 'Payment failed. Please try again.');
+      }}
+      onCancel={() => {
+        // NOTE: User cancelled — stay on page silently
+      }}
+    />
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main page component
+// ─────────────────────────────────────────────────────────────────────────────
 export function CheckoutPage(): JSX.Element {
   const [status, setStatus] = useState<CheckoutStatus>('loading-config');
   const [errorMsg, setErrorMsg] = useState('');
   const [clientId, setClientId] = useState('');
-  const [paypalMode, setPaypalMode] = useState<'sandbox' | 'live'>('sandbox');
+  const [sdkEnvironment, setSdkEnvironment] = useState<'sandbox' | 'production'>('sandbox');
 
   // Load PayPal Client ID from Supabase app_config
   useEffect(() => {
@@ -38,14 +114,11 @@ export function CheckoutPage(): JSX.Element {
       try {
         const cfg = await fetchAppConfig();
         if (cancelled) return;
-        const id = (cfg.paypal_client_id as string | undefined) ?? '';
-        const mode = (cfg.paypal_mode as string | undefined) ?? 'sandbox';
-        if (!id) {
-          setStatus('no-config');
-          return;
-        }
+        const id = cfg.paypal_client_id ?? '';
+        const mode = cfg.paypal_mode ?? 'sandbox';
+        if (!id) { setStatus('no-config'); return; }
         setClientId(id);
-        setPaypalMode(mode === 'live' ? 'live' : 'sandbox');
+        setSdkEnvironment(mode === 'live' ? 'production' : 'sandbox');
         setStatus('ready');
       } catch {
         if (!cancelled) setStatus('no-config');
@@ -54,7 +127,21 @@ export function CheckoutPage(): JSX.Element {
     return () => { cancelled = true; };
   }, []);
 
-  // ── No config ──────────────────────────────────────────────────────
+  // ── Loading config ──────────────────────────────────────────────────
+  if (status === 'loading-config') {
+    return (
+      <div className="checkout-page">
+        <div className="checkout-card">
+          <div className="checkout-loading">
+            <div className="checkout-spinner" />
+            <span>Loading payment…</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── No config ───────────────────────────────────────────────────────
   if (status === 'no-config') {
     return (
       <div className="checkout-page">
@@ -62,15 +149,16 @@ export function CheckoutPage(): JSX.Element {
           <div className="checkout-error-icon">⚙️</div>
           <h2 className="checkout-title">PayPal not configured</h2>
           <p className="checkout-desc">
-            PayPal credentials are not set up yet.{' '}
-            <Link to="/admin" className="checkout-link">Go to Admin panel</Link> and add your PayPal Client ID.
+            Go to the{' '}
+            <Link to="/admin" className="checkout-link">Admin panel</Link>
+            {' '}and add your PayPal Client ID.
           </p>
         </div>
       </div>
     );
   }
 
-  // ── Success ────────────────────────────────────────────────────────
+  // ── Payment success ─────────────────────────────────────────────────
   if (status === 'success') {
     return (
       <div className="checkout-page">
@@ -86,7 +174,7 @@ export function CheckoutPage(): JSX.Element {
     );
   }
 
-  // ── Error ──────────────────────────────────────────────────────────
+  // ── Payment error ───────────────────────────────────────────────────
   if (status === 'error') {
     return (
       <div className="checkout-page">
@@ -96,7 +184,7 @@ export function CheckoutPage(): JSX.Element {
           <p className="checkout-desc">{errorMsg || 'Something went wrong. Please try again.'}</p>
           <button
             className="btn-checkout-back"
-            onClick={() => { setStatus('loading-config'); setErrorMsg(''); window.location.reload(); }}
+            onClick={() => { setStatus('ready'); setErrorMsg(''); }}
           >
             Try again
           </button>
@@ -105,21 +193,7 @@ export function CheckoutPage(): JSX.Element {
     );
   }
 
-  // ── Loading config ─────────────────────────────────────────────────
-  if (status === 'loading-config') {
-    return (
-      <div className="checkout-page">
-        <div className="checkout-card">
-          <div className="checkout-loading">
-            <div className="checkout-spinner" />
-            <span>Loading payment…</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Ready — PayPal SDK loaded ───────────────────────────────────────
+  // ── Ready — render PayPal ───────────────────────────────────────────
   return (
     <div className="checkout-page">
       <header className="checkout-header">
@@ -148,59 +222,33 @@ export function CheckoutPage(): JSX.Element {
           </div>
         </div>
 
-        {/* PayPal payment */}
+        {/* PayPal payment widget */}
         <div className="checkout-card">
           <h2 className="checkout-title">Complete payment</h2>
           <p className="checkout-desc">
-            Pay with your PayPal account or any credit / debit card.
+            Pay with PayPal or any credit / debit card.
           </p>
 
-          {/* NOTE: PayPalScriptProvider injects the SDK script automatically */}
+          {/*
+            NOTE: PayPalScriptProvider loads the SDK script.
+            PayPalButtonsWrapper (child) uses usePayPalScriptReducer to wait
+            for isPending → isResolved before rendering PayPalButtons.
+            Without this guard, PayPalButtons crashes with
+            "window.paypal.Buttons is undefined".
+          */}
           <PayPalScriptProvider
             options={{
-              clientId: clientId,
+              clientId,
               currency: PRODUCT.currency,
               intent: 'capture',
-              // NOTE: must explicitly list components or PayPalButtons won't load
               components: 'buttons',
-              ...(paypalMode === 'sandbox' ? { 'data-namespace': 'paypal_sdk' } : {}),
+              // PERF: sandbox environment avoids loading live SDK in dev/test
+              environment: sdkEnvironment,
             }}
           >
-            <PayPalButtons
-              style={{
-                layout: 'vertical',
-                color: 'blue',
-                shape: 'rect',
-                label: 'pay',
-                height: 48,
-              }}
-              // NOTE: createOrder uses PayPal's built-in order creation (no backend needed)
-              createOrder={(_data, actions) => {
-                return actions.order.create({
-                  intent: 'CAPTURE',
-                  purchase_units: [
-                    {
-                      description: PRODUCT.description,
-                      amount: {
-                        currency_code: PRODUCT.currency,
-                        value: PRODUCT.price,
-                      },
-                    },
-                  ],
-                });
-              }}
-              onApprove={async (_data, actions) => {
-                if (!actions.order) return;
-                await actions.order.capture();
-                setStatus('success');
-              }}
-              onError={(err) => {
-                setStatus('error');
-                setErrorMsg(err instanceof Error ? err.message : 'Payment failed. Please try again.');
-              }}
-              onCancel={() => {
-                // NOTE: User closed the popup — stay on checkout page, no error shown
-              }}
+            <PayPalButtonsWrapper
+              onSuccess={() => setStatus('success')}
+              onError={(msg) => { setStatus('error'); setErrorMsg(msg); }}
             />
           </PayPalScriptProvider>
 
