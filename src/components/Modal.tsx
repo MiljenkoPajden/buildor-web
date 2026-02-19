@@ -5,12 +5,14 @@ import { useAuth } from '../context/AuthContext';
 export interface ModalProps {
   open: boolean;
   onClose: () => void;
+  /** Koji mode otvoriti — 'signin' (default) ili 'signup' */
+  initialMode?: 'signin' | 'signup';
 }
 
 type AuthMode = 'signin' | 'signup';
 
-export function Modal({ open, onClose }: ModalProps): JSX.Element {
-  const [mode, setMode] = useState<AuthMode>('signin');
+export function Modal({ open, onClose, initialMode = 'signin' }: ModalProps): JSX.Element {
+  const [mode, setMode] = useState<AuthMode>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -28,7 +30,7 @@ export function Modal({ open, onClose }: ModalProps): JSX.Element {
       setPassword('');
       setLoading(false);
       setSignUpSuccess(false);
-      setMode('signin');
+      setMode(initialMode);
     }
     return () => {
       document.body.style.overflow = '';

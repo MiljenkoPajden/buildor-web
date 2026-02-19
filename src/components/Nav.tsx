@@ -4,9 +4,10 @@ import { useAuth } from '../context/AuthContext';
 
 export interface NavProps {
   onOpenModal: () => void;
+  onOpenSignUp: () => void;
 }
 
-export function Nav({ onOpenModal }: NavProps): JSX.Element {
+export function Nav({ onOpenModal, onOpenSignUp }: NavProps): JSX.Element {
   const [scrolled, setScrolled] = useState(false);
   const { isLoggedIn, logout } = useAuth();
   const navigate = useNavigate();
@@ -56,8 +57,8 @@ export function Nav({ onOpenModal }: NavProps): JSX.Element {
             <button type="button" className="btn btn-ghost" onClick={onOpenModal}>
               Log In
             </button>
-            <button type="button" className="btn btn-primary" onClick={onOpenModal}>
-              Get Started
+            <button type="button" className="btn btn-primary" onClick={onOpenSignUp}>
+              Sign Up
             </button>
           </>
         )}
