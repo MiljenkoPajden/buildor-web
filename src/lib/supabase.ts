@@ -55,7 +55,7 @@ export async function fetchAppConfig(): Promise<Record<string, string>> {
   const { data, error } = await client.from('app_config').select('key, value');
   if (error) return {};
   const out: Record<string, string> = {};
-  for (const row of data ?? []) {
+  for (const row of (data ?? []) as Array<{ key: string; value: string }>) {
     if (row.key != null && row.value != null) out[row.key] = row.value;
   }
   return out;
@@ -69,7 +69,7 @@ export async function saveAppConfig(entries: Record<string, string>): Promise<{ 
     .filter(([, v]) => v != null && String(v).trim() !== '')
     .map(([key, value]) => ({ key, value: String(value).trim() }));
   if (rows.length === 0) return { error: null };
-  const { error } = await client.from('app_config').upsert(rows, { onConflict: 'key' });
+  const { error } = await client.from('app_config').upsert(rows as never[], { onConflict: 'key' });
   return { error: error?.message ?? null };
 }
 

@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext';
  */
 export function AuthCallbackPage(): JSX.Element {
   const navigate = useNavigate();
-  const { isLoggedIn, isLoading } = useAuth();
+  const { isLoggedIn } = useAuth();
   const [waited, setWaited] = useState(false);
 
   useEffect(() => {

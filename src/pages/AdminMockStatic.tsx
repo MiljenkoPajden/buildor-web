@@ -392,5 +392,5 @@ export function AdminMockStatic({ page }: MockStaticProps): JSX.Element {
     );
   }
 
-  return null;
+  return <></>;
 }
