@@ -1,0 +1,292 @@
+/**
+ * Home page — Design System aligned (buildor-design-system-complete / localhost:1004).
+ * Copy of home that sticks to design system tokens and 4-font system.
+ */
+
+/* Design system tokens — scoped to home-ds so rest of app unchanged */
+.home-ds {
+  --ds-bg-deep: #040810;
+  --ds-bg-outer: #030508;
+  --ds-bg-content: #070b12;
+  --ds-bg-dark: #0a0d14;
+  --ds-bg-surface: #0c1220;
+  --ds-bg-panel: #0d1219;
+  --ds-bg-card: rgba(15, 23, 42, 0.8);
+  --ds-bg-hover: rgba(56, 189, 248, 0.06);
+  --ds-bg-subtle: rgba(255, 255, 255, 0.03);
+  --ds-accent: #38bdf8;
+  --ds-accent-rgb: 56, 189, 248;
+  --ds-cyan: #38bdf8;
+  --ds-purple: #8B5CF6;
+  --ds-purple-rgb: 139, 92, 246;
+  --ds-text: #f1f5f9;
+  --ds-text-secondary: #94a3b8;
+  --ds-text-muted: #64748b;
+  --ds-text-dim: #475569;
+  --ds-border: rgba(56, 189, 248, 0.15);
+  --ds-border-strong: rgba(56, 189, 248, 0.2);
+  --ds-border-subtle: rgba(255, 255, 255, 0.06);
+  --ds-font-heading: 'IBM Plex Sans', 'Manrope', sans-serif;
+  --ds-font-body: 'IBM Plex Serif', Georgia, serif;
+  --ds-font-sans: 'Inter', -apple-system, sans-serif;
+  --ds-font-mono: 'JetBrains Mono', monospace;
+  --ds-font-display: 'Manrope', sans-serif;
+  --ds-radius-sm: 4px;
+  --ds-radius-md: 6px;
+  --ds-radius-lg: 8px;
+  --ds-radius-xl: 10px;
+  --ds-radius-2xl: 12px;
+  --ds-transition-fast: 0.15s ease;
+  --ds-transition-base: 0.2s ease;
+  --ds-shadow-glow: 0 0 40px rgba(56, 189, 248, 0.1);
+}
+
+.home-ds {
+  background: var(--ds-bg-outer);
+  color: var(--ds-text);
+  font-family: var(--ds-font-sans);
+}
+
+/* Nav — design system panel + glow separators (like admin topbar/sidebar) */
+.home-ds .nav {
+  position: relative;
+  background: rgba(13, 18, 25, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--ds-border-subtle);
+}
+/* Horizontal glow line under nav (like admin topbar::after) */
+.home-ds .nav::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 5%,
+    rgba(var(--ds-accent-rgb), 0.15) 35%,
+    rgba(var(--ds-accent-rgb), 0.2) 50%,
+    rgba(var(--ds-purple-rgb), 0.12) 65%,
+    transparent 95%
+  );
+  pointer-events: none;
+}
+/* Vertical glow separator between nav-left and nav-mid */
+.home-ds .nav-mid {
+  position: relative;
+  padding-left: 20px;
+  margin-left: 1px;
+}
+.home-ds .nav-mid::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 24px;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(var(--ds-accent-rgb), 0.12) 30%,
+    rgba(var(--ds-accent-rgb), 0.2) 50%,
+    rgba(var(--ds-purple-rgb), 0.15) 70%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+/* Vertical glow separator between nav-mid and nav-right */
+.home-ds .nav-right {
+  position: relative;
+  padding-left: 20px;
+  margin-left: 1px;
+}
+.home-ds .nav-right::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 24px;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(var(--ds-accent-rgb), 0.12) 30%,
+    rgba(var(--ds-accent-rgb), 0.2) 50%,
+    rgba(var(--ds-purple-rgb), 0.15) 70%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+.home-ds .nav.scrolled {
+  background: rgba(13, 18, 25, 0.98);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+}
+.home-ds .nav-logo {
+  font-family: var(--ds-font-display);
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: -0.02em;
+  color: var(--ds-text);
+}
+.home-ds .nav-mid a {
+  color: var(--ds-text-muted);
+  font-size: 14px;
+  font-weight: 500;
+  transition: var(--ds-transition-fast);
+}
+.home-ds .nav-mid a:hover {
+  color: var(--ds-text);
+}
+
+/* Buttons — design system */
+.home-ds .btn {
+  font-family: var(--ds-font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: var(--ds-radius-lg);
+  transition: var(--ds-transition-base);
+}
+.home-ds .btn-ghost {
+  background: var(--ds-bg-subtle);
+  color: var(--ds-text-secondary);
+  border: 1px solid var(--ds-border-subtle);
+}
+.home-ds .btn-ghost:hover {
+  background: var(--ds-bg-hover);
+  color: var(--ds-text);
+  border-color: var(--ds-border);
+}
+.home-ds .btn-primary {
+  background: var(--ds-accent);
+  color: var(--ds-bg-deep);
+}
+.home-ds .btn-primary:hover {
+  box-shadow: var(--ds-shadow-glow);
+  transform: translateY(-1px);
+}
+.home-ds .btn-lg {
+  padding: 14px 32px;
+  font-size: 15px;
+  border-radius: var(--ds-radius-xl);
+}
+
+/* Hero — design system typography + canvas */
+.home-ds .hero {
+  padding: 160px 0 100px;
+}
+.home-ds .hero h1 {
+  font-family: var(--ds-font-display);
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  color: var(--ds-text);
+}
+.home-ds .hero-desc {
+  font-family: var(--ds-font-body);
+  font-size: 18px;
+  color: var(--ds-text-secondary);
+  line-height: 1.7;
+}
+.home-ds .hero-pill {
+  border: 1px solid var(--ds-border);
+  background: rgba(var(--ds-accent-rgb), 0.06);
+  color: var(--ds-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 999px;
+}
+.home-ds .hero-pill .badge {
+  background: var(--ds-accent);
+  color: var(--ds-bg-deep);
+  font-family: var(--ds-font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 999px;
+}
+.home-ds .cyan-accent {
+  color: var(--ds-cyan);
+  filter: drop-shadow(0 0 12px rgba(var(--ds-accent-rgb), 0.4));
+}
+
+/* Section labels & titles — 4-font system */
+.home-ds .section-label {
+  font-family: var(--ds-font-mono);
+  font-size: 12px;
+  color: var(--ds-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-weight: 700;
+}
+.home-ds .section-title {
+  font-family: var(--ds-font-display);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--ds-text);
+}
+.home-ds .section-desc {
+  font-family: var(--ds-font-body);
+  font-size: 17px;
+  color: var(--ds-text-secondary);
+  line-height: 1.7;
+}
+
+/* Proof / logos */
+.home-ds .proof-label {
+  font-family: var(--ds-font-mono);
+  font-size: 12px;
+  color: var(--ds-text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+}
+.home-ds .proof-logo {
+  font-family: var(--ds-font-heading);
+  font-weight: 600;
+  color: var(--ds-text-muted);
+}
+
+/* Cards & borders — design system (content area slightly lighter than outer) */
+.home-ds .page-frame {
+  position: relative;
+  background: var(--ds-bg-content);
+  border: 1px solid var(--ds-border-subtle);
+  border-radius: var(--ds-radius-2xl);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+}
+/* Suptilni glow iznad sadržaja — gradient ostaje, pozadina malo tamnija od vanjskog */
+.home-ds .page-frame::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(ellipse 70% 60% at 50% 0%, rgba(var(--ds-accent-rgb), 0.05), transparent 55%);
+  pointer-events: none;
+}
+.home-ds .app-preview-frame {
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-2xl);
+  box-shadow: var(--ds-shadow-glow), 0 20px 80px rgba(0, 0, 0, 0.5);
+}
+
+/* Glow text — design system gradient */
+.home-ds .glow-text {
+  background: linear-gradient(135deg, var(--ds-cyan) 0%, var(--ds-purple) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Footer — design system */
+.home-ds .footer {
+  border-top-color: var(--ds-border-subtle);
+  color: var(--ds-text-muted);
+}
+.home-ds .footer-links a {
+  color: var(--ds-text-muted);
+  transition: var(--ds-transition-fast);
+}
+.home-ds .footer-links a:hover {
+  color: var(--ds-text);
+}

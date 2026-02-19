@@ -1,0 +1,12 @@
+export { default as Nav } from './Nav';
+export { default as Hero } from './Hero';
+export { default as Proof } from './Proof';
+export { default as FontShowcase } from './FontShowcase';
+export { default as ArchSection } from './ArchSection';
+export { default as BentoSection } from './BentoSection';
+export { default as AgentsSection } from './AgentsSection';
+export { default as HowSection } from './HowSection';
+export { default as PlatformsSection } from './PlatformsSection';
+export { default as CTA } from './CTA';
+export { default as Footer } from './Footer';
+export { default as Modal } from './Modal';
