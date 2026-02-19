@@ -236,24 +236,26 @@ export function CheckoutPage(): JSX.Element {
             Without this guard, PayPalButtons crashes with
             "window.paypal.Buttons is undefined".
           */}
-          <PayPalScriptProvider
-            options={{
-              clientId,
-              currency: PRODUCT.currency,
-              intent: 'capture',
-              components: 'buttons',
-              // PERF: sandbox environment avoids loading live SDK in dev/test
-              environment: sdkEnvironment,
-            }}
-          >
-            <PayPalButtonsWrapper
-              onSuccess={() => setStatus('success')}
-              onError={(msg) => { setStatus('error'); setErrorMsg(msg); }}
-            />
-          </PayPalScriptProvider>
+          {/* DS: cyan-bordered wrapper groups the PayPal button visually */}
+          <div className="checkout-paypal-wrap">
+            <PayPalScriptProvider
+              options={{
+                clientId,
+                currency: PRODUCT.currency,
+                intent: 'capture',
+                components: 'buttons',
+                environment: sdkEnvironment,
+              }}
+            >
+              <PayPalButtonsWrapper
+                onSuccess={() => setStatus('success')}
+                onError={(msg) => { setStatus('error'); setErrorMsg(msg); }}
+              />
+            </PayPalScriptProvider>
+          </div>
 
           <p className="checkout-footnote">
-            Payments processed securely by PayPal. Your card details are never stored on our servers.
+            Payments processed securely by PayPal. Card details never stored on our servers.
           </p>
         </div>
       </div>
