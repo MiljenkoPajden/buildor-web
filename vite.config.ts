@@ -9,5 +9,12 @@ export default defineConfig({
   },
   server: {
     port: 3027,
+    proxy: {
+      // Proxy /api/* to local Express API server
+      '/api': {
+        target: 'http://localhost:3028',
+        changeOrigin: true,
+      },
+    },
   },
 });
