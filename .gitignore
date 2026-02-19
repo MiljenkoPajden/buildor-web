@@ -5,3 +5,6 @@ dist
 *.local
 Sources
 docs
+nul
+
+.vercel

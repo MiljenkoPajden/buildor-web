@@ -64,13 +64,17 @@ function useRevealAfterPaint(): void {
 
 function HomePage(): JSX.Element {
   const [modalOpen, setModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<'signin' | 'signup'>('signin');
   useRevealAfterPaint();
   useSmoothAnchorScroll();
+
+  const openSignIn = (): void => { setModalMode('signin'); setModalOpen(true); };
+  const openSignUp = (): void => { setModalMode('signup'); setModalOpen(true); };
 
   return (
     <>
       <div className="page-frame">
-        <Nav onOpenModal={() => setModalOpen(true)} />
+        <Nav onOpenModal={openSignIn} onOpenSignUp={openSignUp} />
         <Hero />
         <Proof />
         <ArchSection />
@@ -81,7 +85,7 @@ function HomePage(): JSX.Element {
         <CTA />
         <Footer />
       </div>
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} />
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} initialMode={modalMode} />
     </>
   );
 }
