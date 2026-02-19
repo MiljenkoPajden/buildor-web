@@ -27,6 +27,7 @@ const PAGE_LABELS: Record<AdminPageId, string> = {
 
 const STORAGE_GOOGLE = 'buildor_google_api';
 const STORAGE_GITHUB = 'buildor_github_api';
+const STORAGE_PAYPAL = 'buildor_paypal_api';
 
 function getStoredGoogle(): { clientId: string; clientSecret: string } {
   try {
@@ -50,14 +51,31 @@ function getStoredGitHub(): { clientId: string; clientSecret: string } {
   }
 }
 
+function getStoredPayPal(): { clientId: string; clientSecret: string; mode: 'sandbox' | 'live' } {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_PAYPAL) : null;
+    if (!raw) return { clientId: '', clientSecret: '', mode: 'sandbox' };
+    const o = JSON.parse(raw) as { clientId?: string; clientSecret?: string; mode?: string };
+    return {
+      clientId: o?.clientId ?? '',
+      clientSecret: o?.clientSecret ?? '',
+      mode: o?.mode === 'live' ? 'live' : 'sandbox',
+    };
+  } catch {
+    return { clientId: '', clientSecret: '', mode: 'sandbox' };
+  }
+}
+
 export function AdminPage(): JSX.Element {
   const { user, isLoggedIn, isLoading, logout } = useAuth();
   const [savedSupabase, setSavedSupabase] = useState(false);
   const [savedGoogle, setSavedGoogle] = useState(false);
   const [savedGitHub, setSavedGitHub] = useState(false);
+  const [savedPayPal, setSavedPayPal] = useState(false);
   const [config, setConfig] = useState(() => getStoredSupabaseConfig());
   const [googleApi, setGoogleApi] = useState(getStoredGoogle);
   const [githubApi, setGithubApi] = useState(getStoredGitHub);
+  const [paypalApi, setPaypalApi] = useState(getStoredPayPal);
   const [page, setPage] = useState<AdminPageId>('api');
   const [showMock, setShowMock] = useState(() => {
     try {
@@ -83,6 +101,7 @@ export function AdminPage(): JSX.Element {
     setConfig(getStoredSupabaseConfig());
     setGoogleApi(getStoredGoogle());
     setGithubApi(getStoredGitHub());
+    setPaypalApi(getStoredPayPal());
   }, []);
 
   // When showing API & transfer, load from DB (single source of truth) and override state
@@ -104,6 +123,11 @@ export function AdminPage(): JSX.Element {
         setGithubApi((gh) => ({
           clientId: db.github_client_id ?? gh.clientId,
           clientSecret: db.github_client_secret ?? gh.clientSecret,
+        }));
+        setPaypalApi((pp) => ({
+          clientId: db.paypal_client_id ?? pp.clientId,
+          clientSecret: db.paypal_client_secret ?? pp.clientSecret,
+          mode: (db.paypal_mode === 'live' ? 'live' : db.paypal_mode === 'sandbox' ? 'sandbox' : pp.mode),
         }));
       }
     })();
@@ -160,14 +184,29 @@ export function AdminPage(): JSX.Element {
     setTimeout(() => setSavedGitHub(false), 3000);
   };
 
+  const handleSavePayPal = async (e: React.FormEvent): Promise<void> => {
+    e.preventDefault();
+    const clientId = paypalApi.clientId.trim();
+    const clientSecret = paypalApi.clientSecret.trim();
+    const mode = paypalApi.mode;
+    await saveAppConfig({ paypal_client_id: clientId, paypal_client_secret: clientSecret, paypal_mode: mode });
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STORAGE_PAYPAL, JSON.stringify({ clientId, clientSecret, mode }));
+    }
+    setSavedPayPal(true);
+    setTimeout(() => setSavedPayPal(false), 3000);
+  };
+
   const exportConfig = (): void => {
     const supabase = getStoredSupabaseConfig();
     const google = getStoredGoogle();
     const github = getStoredGitHub();
+    const paypal = getStoredPayPal();
     const payload = {
       supabase: { url: supabase.url, anonKey: supabase.anonKey },
       google: { clientId: google.clientId, clientSecret: google.clientSecret },
       github: { clientId: github.clientId, clientSecret: github.clientSecret },
+      paypal: { clientId: paypal.clientId, clientSecret: paypal.clientSecret, mode: paypal.mode },
     };
     const json = JSON.stringify(payload, null, 2);
     if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
@@ -197,6 +236,7 @@ export function AdminPage(): JSX.Element {
         supabase?: { url?: string; anonKey?: string; anon_key?: string };
         google?: { clientId?: string; clientSecret?: string };
         github?: { clientId?: string; clientSecret?: string };
+        paypal?: { clientId?: string; clientSecret?: string; mode?: string };
       };
       const anonKey = data.supabase?.anonKey ?? data.supabase?.anon_key ?? '';
       if (data.supabase?.url && anonKey) {
@@ -212,6 +252,15 @@ export function AdminPage(): JSX.Element {
         const gh = { clientId: String(data.github.clientId ?? ''), clientSecret: String(data.github.clientSecret ?? '') };
         if (typeof localStorage !== 'undefined') localStorage.setItem(STORAGE_GITHUB, JSON.stringify(gh));
         setGithubApi(gh);
+      }
+      if (data.paypal) {
+        const pp = {
+          clientId: String(data.paypal.clientId ?? ''),
+          clientSecret: String(data.paypal.clientSecret ?? ''),
+          mode: data.paypal.mode === 'live' ? 'live' : 'sandbox' as 'sandbox' | 'live',
+        };
+        if (typeof localStorage !== 'undefined') localStorage.setItem(STORAGE_PAYPAL, JSON.stringify(pp));
+        setPaypalApi(pp);
       }
       setImportJson('');
       setImportMessage('ok');
@@ -534,6 +583,66 @@ export function AdminPage(): JSX.Element {
                 </label>
                 <button type="submit" className="btn btn-primary">Save</button>
                 {savedGitHub && <p className="admin-saved">Saved.</p>}
+              </form>
+            </section>
+
+            {/* ── PayPal ── */}
+            <section className="admin-card">
+              <h2 className="admin-card-title">PayPal API (Checkout)</h2>
+              <p className="admin-card-link">
+                Where to create keys:{' '}
+                <a href="https://developer.paypal.com/dashboard/applications/live" target="_blank" rel="noopener noreferrer">
+                  developer.paypal.com → My Apps &amp; Credentials
+                </a>
+                {' '}→ Create App → Merchant → copy <strong>Client ID</strong> and <strong>Secret key</strong>.
+              </p>
+              <p className="admin-desc">
+                Used for card checkout on <code>/checkout</code> — customers pay by card without a PayPal account.
+              </p>
+              <p className="admin-save-hint">
+                Be sure to click <strong>Save</strong> — values are stored in database and persist across browsers.
+              </p>
+              <form onSubmit={handleSavePayPal} className="admin-form">
+                <label className="admin-label">
+                  Client ID
+                  <input
+                    type="text"
+                    className="modal-field"
+                    placeholder="AXnSL..."
+                    value={paypalApi.clientId}
+                    onChange={(e) => setPaypalApi((c) => ({ ...c, clientId: e.target.value }))}
+                    autoComplete="off"
+                  />
+                </label>
+                <label className="admin-label">
+                  Secret Key
+                  <input
+                    type="password"
+                    className="modal-field"
+                    placeholder="EGkB..."
+                    value={paypalApi.clientSecret}
+                    onChange={(e) => setPaypalApi((c) => ({ ...c, clientSecret: e.target.value }))}
+                    autoComplete="off"
+                  />
+                </label>
+                <label className="admin-label">
+                  Mode
+                  <select
+                    className="modal-field"
+                    value={paypalApi.mode}
+                    onChange={(e) => setPaypalApi((c) => ({ ...c, mode: e.target.value as 'sandbox' | 'live' }))}
+                  >
+                    <option value="sandbox">Sandbox (testing)</option>
+                    <option value="live">Live (production)</option>
+                  </select>
+                </label>
+                <button type="submit" className="btn btn-primary">Save</button>
+                {savedPayPal && <p className="admin-saved">Saved. PayPal credentials stored in database.</p>}
+                {paypalApi.clientId && (
+                  <p className="admin-desc" style={{ marginTop: '0.75rem', color: 'var(--ds-green)' }}>
+                    PayPal is configured ({paypalApi.mode} mode). <a href="/checkout" target="_blank" rel="noopener noreferrer">Open checkout →</a>
+                  </p>
+                )}
               </form>
             </section>
           </div>

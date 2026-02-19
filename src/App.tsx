@@ -15,6 +15,7 @@ import Modal from './components/Modal';
 import AdminPage from './pages/AdminPage';
 import AuthCallbackPage from './pages/AuthCallbackPage';
 import HomePageDS from './pages/HomePageDS';
+import CheckoutPage from './pages/CheckoutPage';
 
 const REVEAL_OPTIONS: IntersectionObserverInit = {
   threshold: 0.06,
@@ -94,6 +95,7 @@ export default function App(): JSX.Element {
           <Route path="/home-copy" element={<HomePageDS />} />
           <Route path="/home-classic" element={<HomePage />} />
           <Route path="/admin" element={<AdminPage />} />
+          <Route path="/checkout" element={<CheckoutPage />} />
           <Route path="/auth/callback" element={<AuthCallbackPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
