@@ -7,13 +7,13 @@ import {
   isSupabaseConfigured,
   fetchAppConfig,
   saveAppConfig,
+  getSupabaseClient,
 } from '../lib/supabase';
-import { getSupabaseClient } from '../lib/supabase';
+import { AdminMockStatic } from './AdminMockStatic';
 
 // DS: no type-gen yet — cast until Supabase types are generated
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnySupabase = { from: (table: string) => any; auth: any };
-import { AdminMockStatic } from './AdminMockStatic';
 
 const MOCK_STORAGE_KEY = 'buildor_admin_show_mock';
 
@@ -465,19 +465,33 @@ function AdminClientsSection(): JSX.Element {
                     </div>
                   )}
 
-                  {/* Portal link */}
+                  {/* Portal preview + notes */}
                   <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                    <a
-                      href="/portal"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ fontSize: '12px', color: 'var(--ds-cyan, #38bdf8)', textDecoration: 'none' }}
-                    >
-                      Open Client Portal →
-                    </a>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                      {/* View as Client — sets override in sessionStorage then opens /portal */}
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        style={{ padding: '6px 14px', fontSize: '13px' }}
+                        onClick={() => {
+                          sessionStorage.setItem('portal_client_override', client.id);
+                          window.open('/portal', '_blank');
+                        }}
+                      >
+                        👁 View as Client
+                      </button>
+                      <a
+                        href={`/portal/${invites[client.id]?.[0]?.token ?? ''}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ fontSize: '12px', color: 'var(--ds-cyan, #38bdf8)', textDecoration: 'none' }}
+                      >
+                        Open Invite Page →
+                      </a>
+                    </div>
                     {client.notes && (
-                      <p style={{ fontSize: '12px', color: 'var(--ds-text-muted, #64748b)', marginTop: '6px' }}>
-                        {client.notes}
+                      <p style={{ fontSize: '12px', color: 'var(--ds-text-muted, #64748b)', marginTop: '8px' }}>
+                        📝 {client.notes}
                       </p>
                     )}
                   </div>
@@ -488,16 +502,21 @@ function AdminClientsSection(): JSX.Element {
         })}
       </section>
 
-      {/* Migration reminder */}
-      <div className="admin-card admin-card-warning">
-        <strong>SQL Migrations Required</strong>
-        <p>Before using Client Portals, run these in <a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer">Supabase Dashboard → SQL Editor</a>:</p>
-        <ul className="admin-list">
-          <li><code>supabase/migrations/003_client_portal.sql</code> — clients, invites, members</li>
-          <li><code>supabase/migrations/004_projects.sql</code> — projects, messages</li>
-          <li><code>supabase/migrations/005_invoices.sql</code> — invoices, line items</li>
-        </ul>
-      </div>
+      {/* Quick stats */}
+      {!loading && !error && clients.length > 0 && (
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <div style={{ padding: '10px 16px', background: 'rgba(56,189,248,0.06)', border: '1px solid rgba(56,189,248,0.15)', borderRadius: '8px', fontSize: '13px' }}>
+            <span style={{ fontWeight: 700, color: 'var(--ds-cyan, #38bdf8)', marginRight: '6px' }}>{clients.length}</span>
+            <span style={{ color: 'var(--ds-text-secondary, #94a3b8)' }}>Active Clients</span>
+          </div>
+          <div style={{ padding: '10px 16px', background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.15)', borderRadius: '8px', fontSize: '13px' }}>
+            <span style={{ fontWeight: 700, color: '#22c55e', marginRight: '6px' }}>
+              {Object.values(invites).flat().filter(i => i.status === 'accepted').length}
+            </span>
+            <span style={{ color: 'var(--ds-text-secondary, #94a3b8)' }}>Accepted Invites</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

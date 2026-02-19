@@ -56,9 +56,10 @@ export function useInvite(token: string | undefined): UseInviteResult {
       const sb = getSupabaseClient() as AnySupabase | null;
       if (!sb) { setStatus('invalid'); return; }
 
+      // Step 1 — fetch invite record (anon can read via public SELECT policy)
       const { data, error } = await sb
         .from('client_invites')
-        .select('*, clients(name, company, logo_url)')
+        .select('id, client_id, email, role, status, expires_at')
         .eq('token', token)
         .single();
 
@@ -67,7 +68,26 @@ export function useInvite(token: string | undefined): UseInviteResult {
       if (error || !data) { setStatus('invalid'); return; }
 
       const invite = data as Record<string, unknown>;
-      const client = invite.clients as Record<string, string | null> | null;
+
+      // Step 2 — fetch client name via security-definer RPC (anon-accessible)
+      let clientName = 'Your workspace';
+      let clientCompany: string | null = null;
+      let clientLogoUrl: string | null = null;
+
+      // NOTE: uses get_client_by_invite_token RPC — anon can call this,
+      // it validates token + expiry internally so we don't expose all clients publicly
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: clientRows } = await (sb as any).rpc('get_client_by_invite_token', { p_token: token });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const clientRow: Record<string, string | null> | undefined = Array.isArray(clientRows) ? (clientRows[0] as any) : undefined;
+      if (clientRow) {
+        clientName = clientRow.name ?? 'Your workspace';
+        clientCompany = clientRow.company ?? null;
+        clientLogoUrl = clientRow.logo_url ?? null;
+      }
+
+      if (cancelled) return;
 
       const parsed: InviteData = {
         id: invite.id as string,
@@ -76,9 +96,9 @@ export function useInvite(token: string | undefined): UseInviteResult {
         role: invite.role as InviteData['role'],
         status: invite.status as InviteData['status'],
         expires_at: invite.expires_at as string,
-        client_name: client?.name ?? 'Your workspace',
-        client_company: client?.company ?? null,
-        client_logo_url: client?.logo_url ?? null,
+        client_name: clientName,
+        client_company: clientCompany,
+        client_logo_url: clientLogoUrl,
       };
 
       setInviteData(parsed);

@@ -5,12 +5,17 @@
  * - Resolves current user's client membership from Supabase
  * - Exposes role-based permission flags
  * - Independent from AuthContext (auth knows user, portal knows membership)
+ * - Admin "View as Client" override via sessionStorage PORTAL_CLIENT_OVERRIDE
  */
 
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { getSupabaseClient } from '../lib/supabase';
 import { useAuth } from './AuthContext';
+
+// NOTE: Admin can set this key in sessionStorage to preview any client's portal.
+// Cleared when admin navigates away from /portal.
+export const PORTAL_CLIENT_OVERRIDE_KEY = 'portal_client_override';
 
 // DS: Supabase client has no generated types for our custom tables yet.
 // We cast to a generic db interface until we add type-gen to the build pipeline.
@@ -95,12 +100,21 @@ export function PortalProvider({ children }: PortalProviderProps): JSX.Element {
     setError(null);
 
     try {
-      // Step 1 — find membership for this user
-      const { data: memberData, error: memberErr } = await sb
+      // NOTE: Admin "View as Client" override — if set, load that specific client
+      const overrideClientId = sessionStorage.getItem(PORTAL_CLIENT_OVERRIDE_KEY);
+
+      let memberQuery = sb
         .from('client_members')
         .select('*')
         .eq('user_id', user.id)
-        .eq('status', 'active')
+        .eq('status', 'active');
+
+      // If admin override is set, filter to that specific client
+      if (overrideClientId) {
+        memberQuery = memberQuery.eq('client_id', overrideClientId);
+      }
+
+      const { data: memberData, error: memberErr } = await memberQuery
         .limit(1)
         .single();
 
