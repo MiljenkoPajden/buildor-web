@@ -324,6 +324,9 @@ export function AdminPage(): JSX.Element {
               ← Home
             </Link>
           )}
+          <Link to="/checkout" className="btn-g" style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.3)', color: '#22c55e' }}>
+            🛒 Test Checkout
+          </Link>
         </div>
       </header>
 
