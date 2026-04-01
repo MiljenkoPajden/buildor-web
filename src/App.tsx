@@ -15,6 +15,7 @@ import Footer from './components/Footer';
 import Modal from './components/Modal';
 import AdminPage from './pages/AdminPage';
 import AuthCallbackPage from './pages/AuthCallbackPage';
+import EmailOAuthCallback from './pages/EmailOAuthCallback';
 import HomePageDS from './pages/HomePageDS';
 import CheckoutPage from './pages/CheckoutPage';
 import { ClientPortalPage, PortalAuthGuard } from './pages/ClientPortalPage';
@@ -105,6 +106,7 @@ export default function App(): JSX.Element {
           <Route path="/admin" element={<AdminPage />} />
           <Route path="/checkout" element={<CheckoutPage />} />
           <Route path="/auth/callback" element={<AuthCallbackPage />} />
+          <Route path="/auth/email" element={<EmailOAuthCallback />} />
 
           {/* Client Portal routes */}
           <Route
@@ -119,7 +121,6 @@ export default function App(): JSX.Element {
           />
           <Route path="/portal/login" element={<PortalLoginPage />} />
           <Route path="/portal/:token" element={<PortalInvitePage />} />
-
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AuthProvider>
