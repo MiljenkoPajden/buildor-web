@@ -23,16 +23,18 @@ export default function OnboardingPage(): JSX.Element {
   const [accountType, setAccountType] = useState<AccountType>('personal');
   const [plan, setPlan] = useState<PlanType>('free');
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState(user?.displayName || '');
 
   const handleComplete = async () => {
     if (!user) return;
     setSaving(true);
+    setSaveError(null);
     try {
       const client = getSupabaseClient();
       if (client) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (client as any)
+        const { error } = await (client as any)
           .from('profiles')
           .update({
             account_type: accountType,
@@ -41,10 +43,19 @@ export default function OnboardingPage(): JSX.Element {
             onboarding_completed: true,
           })
           .eq('id', user.id);
+        if (error) {
+          console.error('[Onboarding] Supabase update failed:', error);
+          setSaveError(error.message || 'Failed to save profile. Please try again.');
+          setSaving(false);
+          return;
+        }
         await refreshProfile();
       }
     } catch (err) {
       console.error('[Onboarding] Save error:', err);
+      setSaveError(err instanceof Error ? err.message : 'Unexpected error. Please try again.');
+      setSaving(false);
+      return;
     }
     setSaving(false);
     setStep(3);
@@ -209,6 +220,17 @@ export default function OnboardingPage(): JSX.Element {
             </div>
           )}
         </div>
+
+        {/* Error banner */}
+        {saveError && (
+          <div style={{
+            margin: '0 24px 8px', padding: '10px 14px', borderRadius: 8,
+            background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)',
+            fontSize: 12, color: '#ef4444', lineHeight: 1.5,
+          }}>
+            {saveError}
+          </div>
+        )}
 
         {/* Footer buttons */}
         {step < 3 && (
