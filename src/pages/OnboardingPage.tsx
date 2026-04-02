@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import type { AccountType, PlanType } from '../context/AuthContext';
 import { getSupabaseClient } from '../lib/supabase';
@@ -18,7 +18,13 @@ const PLANS: { id: PlanType; label: string; price: string; features: string[] }[
 
 export default function OnboardingPage(): JSX.Element {
   const navigate = useNavigate();
-  const { user, refreshProfile } = useAuth();
+  const { user, isLoading, refreshProfile } = useAuth();
+
+  // If onboarding is already completed, skip straight to admin
+  if (!isLoading && user?.onboardingCompleted) {
+    return <Navigate to="/admin" replace />;
+  }
+
   const [step, setStep] = useState(0); // 0=welcome, 1=account type, 2=plan, 3=done
   const [accountType, setAccountType] = useState<AccountType>('personal');
   const [plan, setPlan] = useState<PlanType>('free');

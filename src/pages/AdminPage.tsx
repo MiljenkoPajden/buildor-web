@@ -956,8 +956,8 @@ function AdminProfileSettings({ user }: { user: import('../context/AuthContext')
 export function AdminPage(): JSX.Element {
   const { user, isLoggedIn, isLoading, logout } = useAuth();
 
-  // Redirect to onboarding if user hasn't completed it
-  if (isLoggedIn && user && !user.onboardingCompleted && user.provider !== 'dev') {
+  // Redirect to onboarding if user hasn't completed it (wait for profile to load first)
+  if (!isLoading && isLoggedIn && user && !user.onboardingCompleted && user.provider !== 'dev') {
     return <Navigate to="/onboarding" replace />;
   }
   const [savedSupabase, setSavedSupabase] = useState(false);
