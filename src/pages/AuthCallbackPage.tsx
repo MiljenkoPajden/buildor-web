@@ -56,6 +56,26 @@ export function AuthCallbackPage(): JSX.Element {
     const portalToken = sessionStorage.getItem(PORTAL_TOKEN_KEY);
 
     if (!portalToken) {
+      // Check if user needs onboarding
+      try {
+        const sb = getSupabaseClient() as AnySupabase | null;
+        if (sb) {
+          const { data: { user } } = await sb.auth.getUser();
+          if (user) {
+            const { data: profile } = await sb
+              .from('profiles')
+              .select('onboarding_completed')
+              .eq('id', user.id)
+              .single();
+            if (profile && !profile.onboarding_completed) {
+              navigate('/onboarding', { replace: true });
+              return;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[AuthCallback] Onboarding check failed, proceeding to admin:', err);
+      }
       navigate('/admin', { replace: true });
       return;
     }

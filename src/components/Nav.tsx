@@ -46,7 +46,7 @@ export function Nav({ onOpenModal, onOpenSignUp }: NavProps): JSX.Element {
               Admin
             </Link>
             <button type="button" className="btn btn-primary" onClick={handleLogout}>
-              Odjava
+              Log out
             </button>
           </>
         ) : (

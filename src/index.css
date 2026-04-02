@@ -76,7 +76,7 @@ a { color: inherit; text-decoration: none; }
 .wrap { max-width: 1240px; margin: 0 auto; padding: 0 48px; }
 section { position: relative; z-index: 1; }
 
-/* ===== PAGE FRAME (identično referentnom HTML) ===== */
+/* ===== PAGE FRAME ===== */
 .page-frame {
   max-width: 1400px;
   margin: 20px auto;
@@ -258,7 +258,7 @@ section { position: relative; z-index: 1; }
 .hero-platforms svg { width: 20px; height: 20px; fill: var(--text-5); opacity: 0.5; transition: opacity 0.2s; }
 .hero-platforms svg:hover { opacity: 1; fill: var(--text-2); }
 
-/* ===== APP SCREENSHOT (identično referentnom HTML) ===== */
+/* ===== APP SCREENSHOT ===== */
 .app-preview {
   margin: 60px auto 0;
   max-width: 1000px;

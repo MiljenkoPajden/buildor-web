@@ -21,6 +21,7 @@ import CheckoutPage from './pages/CheckoutPage';
 import { ClientPortalPage, PortalAuthGuard } from './pages/ClientPortalPage';
 import PortalLoginPage from './pages/PortalLoginPage';
 import PortalInvitePage from './pages/PortalInvitePage';
+import OnboardingPage from './pages/OnboardingPage';
 
 const REVEAL_OPTIONS: IntersectionObserverInit = {
   threshold: 0.06,
@@ -107,6 +108,7 @@ export default function App(): JSX.Element {
           <Route path="/checkout" element={<CheckoutPage />} />
           <Route path="/auth/callback" element={<AuthCallbackPage />} />
           <Route path="/auth/email" element={<EmailOAuthCallback />} />
+          <Route path="/onboarding" element={<OnboardingPage />} />
 
           {/* Client Portal routes */}
           <Route

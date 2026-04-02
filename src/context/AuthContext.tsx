@@ -2,15 +2,23 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { User as SupabaseUser, Session } from '@supabase/supabase-js';
 import { getSupabaseClient, isSupabaseConfigured } from '../lib/supabase';
 
+export type AccountType = 'personal' | 'agency' | 'enterprise';
+export type PlanType = 'free' | 'pro' | 'team';
+
 export interface User {
   id: string;
   email: string;
   displayName?: string;
   avatarUrl?: string;
   provider?: string;
+  /** Identity fields from profiles table */
+  accountType: AccountType;
+  plan: PlanType;
+  traceId: string;
+  onboardingCompleted: boolean;
 }
 
-/** Samo u dev modu (Vite DEV ili localhost). */
+/** Only in dev mode (Vite DEV or localhost). */
 export const isDevMode = (): boolean =>
   typeof import.meta !== 'undefined' && import.meta.env?.DEV === true;
 
@@ -19,13 +27,17 @@ const DEV_USER: User = {
   email: 'dev@buildor.local',
   displayName: 'Dev',
   provider: 'dev',
+  accountType: 'agency',
+  plan: 'pro',
+  traceId: 'dev-trace-000',
+  onboardingCompleted: true,
 };
 
 interface AuthContextValue {
   user: User | null;
   isLoggedIn: boolean;
   isLoading: boolean;
-  /** Samo u dev modu: prijava bez Supabasea */
+  /** Dev mode only: sign in without Supabase */
   devLogin: () => void;
   /** Email + password sign in */
   login: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
@@ -34,31 +46,62 @@ interface AuthContextValue {
   signInWithGoogle: () => Promise<{ error?: string }>;
   signInWithGitHub: () => Promise<{ error?: string }>;
   logout: () => Promise<void>;
+  /** Refresh profile data from Supabase */
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-function mapSupabaseUser(u: SupabaseUser | null): User | null {
+interface ProfileRow {
+  account_type: AccountType;
+  plan: PlanType;
+  trace_id: string;
+  display_name: string | null;
+  onboarding_completed: boolean;
+}
+
+function mapSupabaseUser(u: SupabaseUser | null, profile?: ProfileRow | null): User | null {
   if (!u) return null;
   const email = u.email ?? '';
   return {
     id: u.id,
     email,
-    displayName: u.user_metadata?.full_name ?? u.user_metadata?.name ?? undefined,
+    displayName: profile?.display_name ?? u.user_metadata?.full_name ?? u.user_metadata?.name ?? undefined,
     avatarUrl: u.user_metadata?.avatar_url ?? undefined,
     provider: u.app_metadata?.provider,
+    accountType: profile?.account_type ?? 'personal',
+    plan: profile?.plan ?? 'free',
+    traceId: profile?.trace_id ?? '',
+    onboardingCompleted: profile?.onboarding_completed ?? false,
   };
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }): JSX.Element {
   const [session, setSession] = useState<Session | null>(null);
+  const [profile, setProfile] = useState<ProfileRow | null>(null);
   const [devUser, setDevUser] = useState<User | null>(null);
   const [isLoading, setLoading] = useState(true);
 
   const user = useMemo(
-    () => (session ? mapSupabaseUser(session.user) : devUser),
-    [session, devUser]
+    () => (session ? mapSupabaseUser(session.user, profile) : devUser),
+    [session, profile, devUser]
   );
+
+  // Fetch profile from Supabase when session changes
+  const fetchProfile = useCallback(async (userId: string) => {
+    const client = getSupabaseClient();
+    if (!client) return;
+    const { data } = await client
+      .from('profiles')
+      .select('account_type, plan, trace_id, display_name, onboarding_completed')
+      .eq('id', userId)
+      .single();
+    if (data) setProfile(data as ProfileRow);
+  }, []);
+
+  const refreshProfile = useCallback(async () => {
+    if (session?.user?.id) await fetchProfile(session.user.id);
+  }, [session, fetchProfile]);
 
   useEffect(() => {
     const client = getSupabaseClient();
@@ -68,24 +111,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }): JSX.E
     }
     client.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s);
-      setLoading(false);
+      if (s?.user?.id) fetchProfile(s.user.id).then(() => setLoading(false));
+      else setLoading(false);
     });
     const {
       data: { subscription },
     } = client.auth.onAuthStateChange((_event, s) => {
       setSession(s);
+      if (s?.user?.id) fetchProfile(s.user.id);
+      else setProfile(null);
     });
     return () => subscription.unsubscribe();
-  }, []);
+  }, [fetchProfile]);
 
   const login = useCallback(
     async (email: string, password: string): Promise<{ ok: boolean; error?: string }> => {
       const client = getSupabaseClient();
       if (!isSupabaseConfigured() || !client) {
-        return { ok: false, error: 'Supabase nije konfiguriran. Dodajte VITE_SUPABASE_URL i VITE_SUPABASE_ANON_KEY u .env.' };
+        return { ok: false, error: 'Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.' };
       }
       const trimmed = email.trim();
-      if (!trimmed || !password.trim()) return { ok: false, error: 'Unesite email i lozinku.' };
+      if (!trimmed || !password.trim()) return { ok: false, error: 'Enter email and password.' };
       const { error } = await client.auth.signInWithPassword({ email: trimmed, password });
       if (error) return { ok: false, error: error.message };
       return { ok: true };
@@ -157,8 +203,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }): JSX.E
       signInWithGoogle,
       signInWithGitHub,
       logout,
+      refreshProfile,
     }),
-    [user, isLoading, devLogin, login, signUp, signInWithGoogle, signInWithGitHub, logout]
+    [user, isLoading, devLogin, login, signUp, signInWithGoogle, signInWithGitHub, logout, refreshProfile]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

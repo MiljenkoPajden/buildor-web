@@ -26,8 +26,8 @@ export function setStoredSupabaseConfig(url: string, anonKey: string): void {
   localStorage.setItem(STORAGE_ANON_KEY, anonKey.trim());
 }
 
-// NOTE: Lazy singleton — kreira klijent tek pri prvom pozivu, uvijek čita aktualni config
-// (localStorage može biti popunjen nakon module load-a, statički export bi ostao null)
+// NOTE: Lazy singleton — creates client on first call, always reads current config
+// (localStorage may be populated after module load, a static export would remain null)
 type SupabaseClient = ReturnType<typeof createClient>;
 let _client: SupabaseClient | null = null;
 let _clientUrl = '';
@@ -35,7 +35,7 @@ let _clientUrl = '';
 function getClient(): SupabaseClient | null {
   const { url, anonKey } = getConfig();
   if (!url || !anonKey) return null;
-  // NOTE: Re-kreira klijent samo ako se URL promijenio (npr. admin promijeni projekt)
+  // NOTE: Re-creates client only if URL changed (e.g. admin switches project)
   if (_client && _clientUrl === url) return _client;
   _client = createClient(url, anonKey);
   _clientUrl = url;

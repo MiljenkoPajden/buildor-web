@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   getStoredSupabaseConfig,
@@ -574,8 +574,390 @@ function getStoredPayPal(): { clientId: string; clientSecret: string; mode: 'san
   }
 }
 
+// ─── Project Members (RBAC) ──────────────────────────────────────────────────
+
+interface ProjectMemberRow {
+  id: string;
+  project_id: string;
+  user_id: string;
+  role: 'owner' | 'maintainer' | 'contributor' | 'viewer';
+  granted_at: string;
+  project_name?: string;
+  user_email?: string;
+}
+
+function AdminProjectMembers({ userId }: { userId: string }): JSX.Element {
+  const [members, setMembers] = useState<ProjectMemberRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const client = getSupabaseClient() as AnySupabase | null;
+      if (!client) { setLoading(false); return; }
+      // Fetch project memberships for this user, join project name
+      const { data, error } = await client
+        .from('project_members')
+        .select('id, project_id, user_id, role, granted_at, projects(name)')
+        .eq('user_id', userId)
+        .order('granted_at', { ascending: false });
+      if (!cancelled) {
+        if (data) {
+          setMembers(data.map((m: Record<string, unknown>) => ({
+            ...m,
+            project_name: (m.projects as Record<string, string> | null)?.name ?? 'Unknown',
+          })) as ProjectMemberRow[]);
+        }
+        if (error) console.error('[ProjectMembers] Fetch error:', error);
+        setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  const ROLE_COLORS: Record<string, string> = {
+    owner: '#f59e0b',
+    maintainer: '#8b5cf6',
+    contributor: '#57c3ff',
+    viewer: '#64748b',
+  };
+
+  return (
+    <section className="admin-card" style={{ marginTop: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h2 className="admin-card-title">Project Memberships</h2>
+        <button onClick={() => setExpanded(!expanded)} style={{
+          fontSize: 10, fontWeight: 600, padding: '3px 10px', borderRadius: 4,
+          background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)',
+          color: 'var(--text-secondary, #94a3b8)', cursor: 'pointer',
+        }}>
+          {expanded ? 'Collapse' : 'Expand'}
+        </button>
+      </div>
+      {expanded && (
+        <div style={{ marginTop: 10 }}>
+          {loading ? (
+            <p style={{ fontSize: 11, color: 'var(--text-tertiary, #64748b)' }}>Loading memberships...</p>
+          ) : members.length === 0 ? (
+            <p style={{ fontSize: 11, color: 'var(--text-tertiary, #64748b)' }}>
+              No project memberships yet. When you create projects, your membership will appear here.
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {members.map(m => (
+                <div key={m.id} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '8px 10px', borderRadius: 6,
+                  background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.04)',
+                }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary, #e2e8f0)' }}>
+                      {m.project_name}
+                    </div>
+                    <div style={{ fontSize: 9, color: 'var(--text-tertiary, #64748b)', marginTop: 2 }}>
+                      Joined {new Date(m.granted_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <span style={{
+                    fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                    background: `${ROLE_COLORS[m.role] || '#64748b'}14`,
+                    color: ROLE_COLORS[m.role] || '#64748b',
+                    textTransform: 'uppercase', letterSpacing: '0.5px',
+                  }}>
+                    {m.role}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="admin-desc" style={{ marginTop: 8, fontSize: 9 }}>
+            Roles: <strong>owner</strong> (full control) &gt; <strong>maintainer</strong> (read/write/exec, approve) &gt; <strong>contributor</strong> (read/write, submit) &gt; <strong>viewer</strong> (read-only)
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ─── Audit Log Viewer ────────────────────────────────────────────────────────
+
+interface AuditEventRow {
+  event_id: string;
+  trace_id: string;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  outcome: string;
+  confidence: number | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+function AdminAuditLog({ userId, traceId }: { userId: string; traceId: string }): JSX.Element {
+  const [events, setEvents] = useState<AuditEventRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+  const [filterMode, setFilterMode] = useState<'user' | 'trace'>('user');
+
+  useEffect(() => {
+    if (!expanded) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const client = getSupabaseClient() as AnySupabase | null;
+      if (!client) { setLoading(false); return; }
+      let query = client
+        .from('audit_events')
+        .select('event_id, trace_id, action, target_type, target_id, outcome, confidence, metadata, created_at')
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (filterMode === 'trace' && traceId) {
+        query = query.eq('trace_id', traceId);
+      } else {
+        query = query.eq('user_id', userId);
+      }
+
+      const { data, error } = await query;
+      if (!cancelled) {
+        if (data) setEvents(data as AuditEventRow[]);
+        if (error) console.error('[AuditLog] Fetch error:', error);
+        setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [expanded, filterMode, userId, traceId]);
+
+  const OUTCOME_COLORS: Record<string, string> = {
+    success: '#22c55e',
+    failure: '#ef4444',
+    denied: '#f59e0b',
+    error: '#ef4444',
+  };
+
+  return (
+    <section className="admin-card" style={{ marginTop: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h2 className="admin-card-title">Audit Log</h2>
+        <button onClick={() => setExpanded(!expanded)} style={{
+          fontSize: 10, fontWeight: 600, padding: '3px 10px', borderRadius: 4,
+          background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)',
+          color: 'var(--text-secondary, #94a3b8)', cursor: 'pointer',
+        }}>
+          {expanded ? 'Collapse' : 'Expand'}
+        </button>
+      </div>
+      {expanded && (
+        <div style={{ marginTop: 10 }}>
+          {/* Filter toggle */}
+          <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
+            {(['user', 'trace'] as const).map(mode => (
+              <button key={mode} onClick={() => setFilterMode(mode)} style={{
+                fontSize: 10, fontWeight: 600, padding: '3px 10px', borderRadius: 4,
+                background: filterMode === mode ? 'rgba(87,195,255,0.08)' : 'transparent',
+                border: `1px solid ${filterMode === mode ? 'rgba(87,195,255,0.3)' : 'rgba(255,255,255,0.06)'}`,
+                color: filterMode === mode ? 'var(--accent, #57c3ff)' : 'var(--text-tertiary, #64748b)',
+                cursor: 'pointer', textTransform: 'capitalize',
+              }}>
+                By {mode === 'user' ? 'User ID' : 'Trace ID'}
+              </button>
+            ))}
+          </div>
+
+          {loading ? (
+            <p style={{ fontSize: 11, color: 'var(--text-tertiary, #64748b)' }}>Loading events...</p>
+          ) : events.length === 0 ? (
+            <p style={{ fontSize: 11, color: 'var(--text-tertiary, #64748b)' }}>
+              No audit events yet. Actions you take will be logged here.
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 320, overflowY: 'auto' }}>
+              {events.map(e => (
+                <div key={e.event_id} style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '6px 10px', borderRadius: 5,
+                  background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.03)',
+                  fontSize: 11,
+                }}>
+                  {/* Outcome dot */}
+                  <div style={{
+                    width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                    background: OUTCOME_COLORS[e.outcome] || '#64748b',
+                  }} />
+                  {/* Action */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontWeight: 600, color: 'var(--text-primary, #e2e8f0)', fontFamily: 'var(--font-mono, monospace)', fontSize: 10 }}>
+                      {e.action}
+                    </span>
+                    {e.target_type && (
+                      <span style={{ color: 'var(--text-tertiary, #64748b)', marginLeft: 6, fontSize: 9 }}>
+                        {e.target_type}{e.target_id ? `:${e.target_id.slice(0, 8)}` : ''}
+                      </span>
+                    )}
+                    {e.confidence !== null && (
+                      <span style={{ color: '#f59e0b', marginLeft: 6, fontSize: 9 }}>
+                        AI:{Math.round(e.confidence * 100)}%
+                      </span>
+                    )}
+                  </div>
+                  {/* Timestamp */}
+                  <div style={{ fontSize: 9, color: 'var(--text-tertiary, #64748b)', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono, monospace)' }}>
+                    {new Date(e.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="admin-desc" style={{ marginTop: 8, fontSize: 9 }}>
+            Immutable log. No events can be edited or deleted. Filter by Trace ID for full session replay across devices.
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ─── Profile Settings (inline edit) ──────────────────────────────────────────
+
+function AdminProfileSettings({ user }: { user: import('../context/AuthContext').User }): JSX.Element {
+  const { refreshProfile } = useAuth();
+  const [editName, setEditName] = useState(user.displayName || '');
+  const [editAccountType, setEditAccountType] = useState(user.accountType);
+  const [editPlan, setEditPlan] = useState(user.plan);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const dirty = editName !== (user.displayName || '') || editAccountType !== user.accountType || editPlan !== user.plan;
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const client = getSupabaseClient() as AnySupabase | null;
+      if (client) {
+        const { error } = await client
+          .from('profiles')
+          .update({
+            display_name: editName.trim() || null,
+            account_type: editAccountType,
+            plan: editPlan,
+          })
+          .eq('id', user.id);
+        if (error) console.error('[ProfileSettings] Save error:', error);
+        else {
+          await refreshProfile();
+          setSaved(true);
+          setTimeout(() => setSaved(false), 2000);
+        }
+      }
+    } catch (err) {
+      console.error('[ProfileSettings] Error:', err);
+    }
+    setSaving(false);
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '8px 10px', fontSize: 13,
+    background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: 6, color: 'var(--text-primary, #e2e8f0)', outline: 'none',
+    fontFamily: 'inherit',
+  };
+
+  const labelStyle: React.CSSProperties = {
+    fontSize: 9, fontWeight: 700, color: 'var(--text-tertiary, #64748b)',
+    textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 4,
+  };
+
+  const ACCOUNT_OPTS: { id: import('../context/AuthContext').AccountType; label: string; color: string }[] = [
+    { id: 'personal', label: 'Personal', color: '#22c55e' },
+    { id: 'agency', label: 'Agency', color: '#8b5cf6' },
+    { id: 'enterprise', label: 'Enterprise', color: '#f59e0b' },
+  ];
+
+  const PLAN_OPTS: { id: import('../context/AuthContext').PlanType; label: string; price: string }[] = [
+    { id: 'free', label: 'Free', price: '$0' },
+    { id: 'pro', label: 'Pro', price: '$19/mo' },
+    { id: 'team', label: 'Team', price: '$49/mo' },
+  ];
+
+  return (
+    <section className="admin-card" style={{ marginTop: 12 }}>
+      <h2 className="admin-card-title">Profile Settings</h2>
+      <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {/* Display Name */}
+        <div>
+          <label style={labelStyle}>Display Name</label>
+          <input value={editName} onChange={e => setEditName(e.target.value)} placeholder={user.email.split('@')[0]} style={inputStyle} />
+        </div>
+
+        {/* Account Type */}
+        <div>
+          <label style={labelStyle}>Account Type</label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {ACCOUNT_OPTS.map(a => (
+              <button key={a.id} onClick={() => setEditAccountType(a.id)} style={{
+                flex: 1, padding: '6px 8px', fontSize: 11, fontWeight: 600,
+                background: editAccountType === a.id ? `${a.color}14` : 'transparent',
+                border: `1px solid ${editAccountType === a.id ? a.color + '50' : 'rgba(255,255,255,0.06)'}`,
+                borderRadius: 6, cursor: 'pointer',
+                color: editAccountType === a.id ? a.color : 'var(--text-secondary, #94a3b8)',
+                transition: 'all 0.15s',
+              }}>
+                {a.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Plan */}
+        <div>
+          <label style={labelStyle}>Plan</label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {PLAN_OPTS.map(p => (
+              <button key={p.id} onClick={() => setEditPlan(p.id)} style={{
+                flex: 1, padding: '6px 8px', fontSize: 11, fontWeight: 600, textAlign: 'center',
+                background: editPlan === p.id ? 'rgba(87,195,255,0.06)' : 'transparent',
+                border: `1px solid ${editPlan === p.id ? 'rgba(87,195,255,0.3)' : 'rgba(255,255,255,0.06)'}`,
+                borderRadius: 6, cursor: 'pointer',
+                color: editPlan === p.id ? 'var(--accent, #57c3ff)' : 'var(--text-secondary, #94a3b8)',
+                transition: 'all 0.15s',
+              }}>
+                {p.label} <span style={{ fontSize: 9, opacity: 0.6 }}>{p.price}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Save */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button
+            onClick={handleSave}
+            disabled={!dirty || saving}
+            style={{
+              padding: '7px 18px', fontSize: 11, fontWeight: 700,
+              background: dirty ? 'var(--accent, #57c3ff)' : 'rgba(255,255,255,0.04)',
+              border: 'none', borderRadius: 6,
+              color: dirty ? '#070b14' : 'rgba(255,255,255,0.2)',
+              cursor: dirty && !saving ? 'pointer' : 'default',
+              opacity: saving ? 0.6 : 1, transition: 'all 0.2s',
+            }}
+          >
+            {saving ? 'Saving...' : 'Save Changes'}
+          </button>
+          {saved && <span style={{ fontSize: 11, color: '#22c55e', fontWeight: 600 }}>Saved!</span>}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function AdminPage(): JSX.Element {
   const { user, isLoggedIn, isLoading, logout } = useAuth();
+
+  // Redirect to onboarding if user hasn't completed it
+  if (isLoggedIn && user && !user.onboardingCompleted && user.provider !== 'dev') {
+    return <Navigate to="/onboarding" replace />;
+  }
   const [savedSupabase, setSavedSupabase] = useState(false);
   const [savedGoogle, setSavedGoogle] = useState(false);
   const [savedGitHub, setSavedGitHub] = useState(false);
@@ -964,7 +1346,7 @@ export function AdminPage(): JSX.Element {
               </div>
             </section>
 
-            {/* Supabase – uvijek vidljiv (da netko može konfigurirati bez prijave) */}
+            {/* Supabase – always visible (so someone can configure without signing in) */}
             <section className="admin-card">
               <h2 className="admin-card-title">Supabase API</h2>
               <p className="admin-card-link">
@@ -1176,21 +1558,115 @@ export function AdminPage(): JSX.Element {
 
             <div className={`page ${page === 'users' ? 'active' : ''}`}>
               <div className="admin-panel admin-panel-users">
-                <section className="admin-card">
-                  <h2 className="admin-card-title">For users</h2>
-                  <p className="admin-desc">
-                    This area is visible to all signed-in users. Here you will have profile overview, account settings, etc.
-                  </p>
-                  {!isLoading && isLoggedIn && (
-                    <p className="admin-welcome">
-                      Signed in as <strong>{user?.email}</strong>.
-                    </p>
-                  )}
-                  <div className="admin-wireframe-box">
-                    <p className="admin-wireframe-label">Placeholder for user content (wireframe)</p>
-                    <p className="admin-desc">Overview, profile settings, stats — to be added later.</p>
-                  </div>
-                </section>
+                {!isLoading && isLoggedIn && user && (
+                  <>
+                    {/* Identity Card */}
+                    <section className="admin-card">
+                      <h2 className="admin-card-title">Identity</h2>
+                      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', marginTop: 12 }}>
+                        {/* Avatar */}
+                        <div style={{
+                          width: 56, height: 56, borderRadius: 12, flexShrink: 0,
+                          background: user.avatarUrl ? `url(${user.avatarUrl}) center/cover` : 'linear-gradient(135deg, var(--accent, #57c3ff), var(--accent-dim, #3a7bd5))',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 22, fontWeight: 800, color: '#fff',
+                          border: '2px solid rgba(87,195,255,0.2)',
+                        }}>
+                          {!user.avatarUrl && (user.displayName?.[0] ?? user.email[0] ?? '?').toUpperCase()}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary, #e2e8f0)', marginBottom: 2 }}>
+                            {user.displayName || user.email.split('@')[0]}
+                          </div>
+                          <div style={{ fontSize: 12, color: 'var(--text-secondary, #94a3b8)', marginBottom: 8 }}>
+                            {user.email} {user.provider && <span style={{ opacity: 0.6 }}>via {user.provider}</span>}
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            <span style={{
+                              fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                              background: user.accountType === 'agency' ? 'rgba(139,92,246,0.12)' : user.accountType === 'enterprise' ? 'rgba(245,158,11,0.12)' : 'rgba(34,197,94,0.12)',
+                              color: user.accountType === 'agency' ? '#8b5cf6' : user.accountType === 'enterprise' ? '#f59e0b' : '#22c55e',
+                              textTransform: 'uppercase', letterSpacing: '0.5px',
+                            }}>
+                              {user.accountType}
+                            </span>
+                            <span style={{
+                              fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                              background: user.plan === 'team' ? 'rgba(87,195,255,0.12)' : user.plan === 'pro' ? 'rgba(245,158,11,0.12)' : 'rgba(100,116,139,0.12)',
+                              color: user.plan === 'team' ? '#57c3ff' : user.plan === 'pro' ? '#f59e0b' : '#94a3b8',
+                              textTransform: 'uppercase', letterSpacing: '0.5px',
+                            }}>
+                              {user.plan} plan
+                            </span>
+                            {!user.onboardingCompleted && (
+                              <span style={{
+                                fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
+                                background: 'rgba(239,68,68,0.1)', color: '#ef4444',
+                              }}>
+                                Onboarding incomplete
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+
+                    {/* Trace & Audit Info */}
+                    <section className="admin-card" style={{ marginTop: 12 }}>
+                      <h2 className="admin-card-title">Audit & Tracing</h2>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 8 }}>
+                        <div>
+                          <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-tertiary, #64748b)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>User ID</div>
+                          <div style={{ fontSize: 11, fontFamily: 'var(--font-mono, monospace)', color: 'var(--text-secondary, #94a3b8)', wordBreak: 'break-all' }}>{user.id}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-tertiary, #64748b)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Trace ID</div>
+                          <div style={{ fontSize: 11, fontFamily: 'var(--font-mono, monospace)', color: 'var(--text-secondary, #94a3b8)', wordBreak: 'break-all' }}>{user.traceId || 'Not assigned'}</div>
+                        </div>
+                      </div>
+                      <p className="admin-desc" style={{ marginTop: 10, fontSize: 10 }}>
+                        Trace ID is immutable and links all audit events for session replay. Every action logged with confidence score for AI-assisted operations.
+                      </p>
+                    </section>
+
+                    {/* Account Type Explainer */}
+                    <section className="admin-card" style={{ marginTop: 12 }}>
+                      <h2 className="admin-card-title">Account Types</h2>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 8 }}>
+                        {[
+                          { type: 'personal', label: 'Personal', desc: 'Solo developer, 1 browser workspace', color: '#22c55e', active: user.accountType === 'personal' },
+                          { type: 'agency', label: 'Agency / Studio', desc: 'Dev + client accounts, N browser profiles', color: '#8b5cf6', active: user.accountType === 'agency' },
+                          { type: 'enterprise', label: 'Enterprise', desc: 'Teams + SSO, Custom RBAC', color: '#f59e0b', active: user.accountType === 'enterprise' },
+                        ].map(t => (
+                          <div key={t.type} style={{
+                            padding: 10, borderRadius: 8,
+                            background: t.active ? `${t.color}0a` : 'rgba(255,255,255,0.02)',
+                            border: `1px solid ${t.active ? t.color + '30' : 'rgba(255,255,255,0.06)'}`,
+                            opacity: t.active ? 1 : 0.5,
+                          }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: t.active ? t.color : 'var(--text-secondary, #94a3b8)', marginBottom: 4 }}>{t.label}</div>
+                            <div style={{ fontSize: 9, color: 'var(--text-tertiary, #64748b)', lineHeight: 1.4 }}>{t.desc}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+
+                    {/* Profile Settings */}
+                    <AdminProfileSettings user={user} />
+
+                    {/* Project Members (RBAC) */}
+                    <AdminProjectMembers userId={user.id} />
+
+                    {/* Audit Log */}
+                    <AdminAuditLog userId={user.id} traceId={user.traceId} />
+                  </>
+                )}
+                {!isLoading && !isLoggedIn && (
+                  <section className="admin-card">
+                    <h2 className="admin-card-title">Not signed in</h2>
+                    <p className="admin-desc">Sign in to view your profile and identity settings.</p>
+                  </section>
+                )}
               </div>
             </div>
 

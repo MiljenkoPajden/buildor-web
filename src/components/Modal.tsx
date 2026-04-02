@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 export interface ModalProps {
   open: boolean;
   onClose: () => void;
-  /** Koji mode otvoriti — 'signin' (default) ili 'signup' */
+  /** Which mode to open — 'signin' (default) or 'signup' */
   initialMode?: 'signin' | 'signup';
 }
 
@@ -214,7 +214,7 @@ export function Modal({ open, onClose, initialMode = 'signin' }: ModalProps): JS
                 navigate('/admin');
               }}
             >
-              Dev ulaz
+              Dev login
             </button>
           </p>
         )}

@@ -378,8 +378,8 @@ export function AdminMockStatic({ page }: MockStaticProps): JSX.Element {
         <div className="settings-panel active">
           <div className="panel" style={{ padding: 24 }}>
             <div className="form-row">
-              <div className="form-group"><label className="form-label">Display Name</label><input className="form-input" defaultValue="Marko Kovač" readOnly /></div>
-              <div className="form-group"><label className="form-label">Email</label><input className="form-input" defaultValue="marko@firma.com" readOnly /></div>
+              <div className="form-group"><label className="form-label">Display Name</label><input className="form-input" defaultValue="Mark Davis" readOnly /></div>
+              <div className="form-group"><label className="form-label">Email</label><input className="form-input" defaultValue="mark@company.com" readOnly /></div>
             </div>
             <div className="form-row">
               <div className="form-group"><label className="form-label">Company</label><input className="form-input" defaultValue="Firma d.o.o." readOnly /></div>
