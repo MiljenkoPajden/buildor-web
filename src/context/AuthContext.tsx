@@ -58,6 +58,7 @@ interface ProfileRow {
   trace_id: string;
   display_name: string | null;
   onboarding_completed: boolean;
+  active_profile_id: string | null;
 }
 
 function mapSupabaseUser(u: SupabaseUser | null, profile?: ProfileRow | null): User | null {
@@ -93,7 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }): JSX.E
     if (!client) return;
     const { data } = await client
       .from('profiles')
-      .select('account_type, plan, trace_id, display_name, onboarding_completed')
+      .select('account_type, plan, trace_id, display_name, onboarding_completed, active_profile_id')
       .eq('id', userId)
       .single();
     if (data) setProfile(data as ProfileRow);

@@ -10,6 +10,7 @@ import {
   getSupabaseClient,
 } from '../lib/supabase';
 import { AdminMockStatic } from './AdminMockStatic';
+import { ProfileSwitcher, ProfileColorBanner, AdminProfilesPage } from '../components/admin/ProfileManager';
 
 // DS: no type-gen yet — cast until Supabase types are generated
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -17,7 +18,7 @@ type AnySupabase = { from: (table: string) => any; auth: any };
 
 const MOCK_STORAGE_KEY = 'buildor_admin_show_mock';
 
-export type AdminPageId = 'api' | 'users' | 'clients' | 'dashboard' | 'projects' | 'deliverables' | 'usage' | 'billing' | 'settings';
+export type AdminPageId = 'api' | 'users' | 'clients' | 'profiles' | 'dashboard' | 'projects' | 'deliverables' | 'usage' | 'billing' | 'settings';
 
 // ─── Client Portal Types ──────────────────────────────────────────────────────
 
@@ -525,6 +526,7 @@ const PAGE_LABELS: Record<AdminPageId, string> = {
   api: 'API & transfer',
   users: 'For users',
   clients: 'Client Portals',
+  profiles: 'Browser Profiles',
   dashboard: 'Dashboard',
   projects: 'Projects',
   deliverables: 'Deliverables',
@@ -1265,7 +1267,30 @@ export function AdminPage(): JSX.Element {
               </span>
               Client Portals
             </button>
+            <button
+              type="button"
+              className={`nav-item ${page === 'profiles' ? 'active' : ''}`}
+              onClick={() => setPage('profiles')}
+            >
+              <span className="nav-icon" aria-hidden>
+                <svg viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none">
+                  <circle cx="12" cy="8" r="4" />
+                  <path d="M4 20c0-4 4-6 8-6s8 2 8 6" />
+                  <path d="M16 4l2 2-2 2" />
+                </svg>
+              </span>
+              Browser Profiles
+            </button>
           </div>
+          {/* Profile Switcher */}
+          {isLoggedIn && (
+            <div style={{ padding: '4px 0', borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: 4 }}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-tertiary, #64748b)', textTransform: 'uppercase', letterSpacing: '0.5px', padding: '6px 16px 2px' }}>
+                Active Profile
+              </div>
+              <ProfileSwitcher onNavigateToProfiles={() => setPage('profiles')} />
+            </div>
+          )}
           {showMock && (
             <div className="nav-section">
               <div className="nav-label">Demo</div>
@@ -1302,6 +1327,7 @@ export function AdminPage(): JSX.Element {
         </aside>
 
         <div className="main">
+          <ProfileColorBanner />
           <div className="content">
             <div className={`page ${page === 'api' ? 'active' : ''}`}>
           <div className="admin-panel admin-panel-me">
@@ -1672,6 +1698,10 @@ export function AdminPage(): JSX.Element {
 
             <div className={`page ${page === 'clients' ? 'active' : ''}`}>
               <AdminClientsSection />
+            </div>
+
+            <div className={`page ${page === 'profiles' ? 'active' : ''}`}>
+              <AdminProfilesPage />
             </div>
 
             {isMockPage && (

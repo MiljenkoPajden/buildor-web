@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
+import { BrowserProfileProvider } from './context/BrowserProfileContext';
 import { PortalProvider } from './context/PortalContext';
 import Nav from './components/Nav';
 import Hero from './components/Hero';
@@ -100,6 +101,7 @@ export default function App(): JSX.Element {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <BrowserProfileProvider>
         <Routes>
           <Route path="/" element={<HomePageDS />} />
           <Route path="/home-copy" element={<HomePageDS />} />
@@ -125,6 +127,7 @@ export default function App(): JSX.Element {
           <Route path="/portal/:token" element={<PortalInvitePage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </BrowserProfileProvider>
       </AuthProvider>
     </BrowserRouter>
   );
