@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -11,6 +11,8 @@ import {
 } from '../lib/supabase';
 import { AdminMockStatic } from './AdminMockStatic';
 import { ProfileSwitcher, ProfileColorBanner, AdminProfilesPage } from '../components/admin/ProfileManager';
+import { useProfileActivity } from '../hooks/useProfileActivity';
+import { useBrowserProfile } from '../context/BrowserProfileContext';
 
 // DS: no type-gen yet — cast until Supabase types are generated
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -955,6 +957,8 @@ function AdminProfileSettings({ user }: { user: import('../context/AuthContext')
 
 export function AdminPage(): JSX.Element {
   const { user, isLoggedIn, isLoading, logout } = useAuth();
+  const { logActivity } = useProfileActivity();
+  const { profiles, activeProfile, switchProfile } = useBrowserProfile();
 
   // Redirect to onboarding if user hasn't completed it (wait for profile to load first)
   if (!isLoading && isLoggedIn && user && !user.onboardingCompleted && user.provider !== 'dev') {
@@ -968,7 +972,28 @@ export function AdminPage(): JSX.Element {
   const [googleApi, setGoogleApi] = useState(getStoredGoogle);
   const [githubApi, setGithubApi] = useState(getStoredGitHub);
   const [paypalApi, setPaypalApi] = useState(getStoredPayPal);
-  const [page, setPage] = useState<AdminPageId>('api');
+  const [page, setPageRaw] = useState<AdminPageId>('api');
+  const setPage = useCallback((id: AdminPageId) => {
+    setPageRaw(id);
+    logActivity('page_visit', PAGE_LABELS[id] ?? id, `/admin#${id}`);
+  }, [logActivity]);
+
+  // Keyboard shortcut: Ctrl+Shift+P to cycle profiles
+  useEffect(() => {
+    const handler = (e: KeyboardEvent): void => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'P') {
+        e.preventDefault();
+        if (profiles.length <= 1) return;
+        const currentIdx = profiles.findIndex(p => p.id === activeProfile?.id);
+        const nextIdx = (currentIdx + 1) % profiles.length;
+        const nextProfile = profiles[nextIdx];
+        if (nextProfile) switchProfile(nextProfile.id);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [profiles, activeProfile, switchProfile]);
+
   const [showMock, setShowMock] = useState(() => {
     try {
       return localStorage.getItem(MOCK_STORAGE_KEY) === '1';

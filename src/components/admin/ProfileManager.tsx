@@ -173,6 +173,7 @@ export function AdminProfilesPage(): JSX.Element {
       <ProfileListSection />
       <BookmarksSection />
       <CredentialVaultSection />
+      <ProfileSettingsSection />
       <ActivityLogSection />
     </div>
   );
@@ -394,6 +395,7 @@ function ProfileCard({ profile, isActive, onSwitch, onDelete }: {
 function BookmarksSection(): JSX.Element {
   const { activeProfile } = useBrowserProfile();
   const { bookmarks, folders, isLoading, addBookmark, removeBookmark, updateBookmark } = useProfileBookmarks();
+  const { logActivity } = useProfileActivity();
   const [expanded, setExpanded] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [newTitle, setNewTitle] = useState('');
@@ -407,6 +409,7 @@ function BookmarksSection(): JSX.Element {
     e.preventDefault();
     if (!newTitle.trim() || !newUrl.trim()) return;
     await addBookmark(newTitle.trim(), newUrl.trim(), newFolder);
+    logActivity('bookmark_add', newTitle.trim(), newUrl.trim());
     setNewTitle('');
     setNewUrl('');
     setShowAdd(false);
@@ -422,6 +425,45 @@ function BookmarksSection(): JSX.Element {
     if (!editingId) return;
     await updateBookmark(editingId, { title: editTitle, url: editUrl });
     setEditingId(null);
+  }
+
+  function handleExport(): void {
+    const data = bookmarks.map(b => ({ title: b.title, url: b.url, folder: b.folder, pinned: b.pinned }));
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `bookmarks-${(activeProfile?.name ?? 'personal').toLowerCase().replace(/\s+/g, '-')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    logActivity('bookmark_export', `Exported ${data.length} bookmarks`);
+  }
+
+  function handleImport(): void {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const items = JSON.parse(text) as { title: string; url: string; folder?: string; pinned?: boolean }[];
+        if (!Array.isArray(items)) return;
+        let count = 0;
+        for (const item of items) {
+          if (item.title && item.url) {
+            await addBookmark(item.title, item.url, item.folder ?? 'default', item.pinned ?? false);
+            count++;
+          }
+        }
+        logActivity('bookmark_import', `Imported ${count} bookmarks from ${file.name}`);
+      } catch {
+        console.warn('[Bookmarks] Import failed');
+      }
+    };
+    input.click();
   }
 
   return (
@@ -451,10 +493,20 @@ function BookmarksSection(): JSX.Element {
             </div>
           )}
 
-          {/* Add bookmark */}
-          <button type="button" className="btn btn-ghost" style={{ fontSize: 10, padding: '4px 10px', marginBottom: 8 }} onClick={() => setShowAdd(!showAdd)}>
-            + Add Bookmark
-          </button>
+          {/* Add bookmark + import/export */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-ghost" style={{ fontSize: 10, padding: '4px 10px' }} onClick={() => setShowAdd(!showAdd)}>
+              + Add Bookmark
+            </button>
+            {bookmarks.length > 0 && (
+              <button type="button" className="btn btn-ghost" style={{ fontSize: 10, padding: '4px 10px' }} onClick={handleExport}>
+                Export JSON
+              </button>
+            )}
+            <button type="button" className="btn btn-ghost" style={{ fontSize: 10, padding: '4px 10px' }} onClick={handleImport}>
+              Import JSON
+            </button>
+          </div>
 
           {showAdd && (
             <form onSubmit={handleAdd} style={{
@@ -496,7 +548,7 @@ function BookmarksSection(): JSX.Element {
                       }}>{b.url}</a>
                       <span style={{ fontSize: 8, color: 'var(--text-tertiary, #64748b)' }}>{b.folder}</span>
                       <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary, #64748b)', fontSize: 10, padding: '0 4px' }} onClick={() => startEdit(b)}>✎</button>
-                      <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 10, padding: '0 4px' }} onClick={() => removeBookmark(b.id)}>×</button>
+                      <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 10, padding: '0 4px' }} onClick={() => { removeBookmark(b.id); logActivity('bookmark_remove', b.title, b.url); }}>×</button>
                     </>
                   )}
                 </div>
@@ -514,6 +566,7 @@ function BookmarksSection(): JSX.Element {
 function CredentialVaultSection(): JSX.Element {
   const { activeProfile, setVaultKey, vaultSalt, setVaultSalt } = useBrowserProfile();
   const { credentials, isLoading, isVaultUnlocked, addCredential, removeCredential, decryptCredential } = useProfileCredentials();
+  const { logActivity } = useProfileActivity();
   const [expanded, setExpanded] = useState(false);
   const [masterPassword, setMasterPassword] = useState('');
   const [unlockError, setUnlockError] = useState<string | null>(null);
@@ -545,10 +598,11 @@ function CredentialVaultSection(): JSX.Element {
       const key = await deriveKey(masterPassword, saltFromBase64(salt));
       setVaultKey(key);
       setMasterPassword('');
+      logActivity('vault_unlock', `Vault unlocked for ${activeProfile?.name ?? 'profile'}`);
     } catch {
       setUnlockError('Failed to derive key');
     }
-  }, [masterPassword, vaultSalt, setVaultKey, setVaultSalt]);
+  }, [masterPassword, vaultSalt, setVaultKey, setVaultSalt, activeProfile?.name, logActivity]);
 
   const handleLock = useCallback(() => {
     setVaultKey(null);
@@ -568,6 +622,7 @@ function CredentialVaultSection(): JSX.Element {
     });
     if (!result.ok) setAddError(result.error ?? 'Failed');
     else {
+      logActivity('credential_add', newService, newUrl || undefined);
       setNewService(''); setNewUrl(''); setNewUsername('');
       setNewPassword(''); setNewNotes(''); setShowAdd(false);
     }
@@ -584,6 +639,7 @@ function CredentialVaultSection(): JSX.Element {
     const plain = await decryptCredential(cred);
     if (plain !== null) {
       setRevealed(prev => ({ ...prev, [id]: plain }));
+      logActivity('credential_reveal', cred.service_name, cred.service_url ?? undefined);
       // Auto-hide after 30s
       setTimeout(() => setRevealed(prev => { const n = { ...prev }; delete n[id]; return n; }), 30000);
     }
@@ -595,6 +651,7 @@ function CredentialVaultSection(): JSX.Element {
     const plain = revealed[id] ?? await decryptCredential(cred);
     if (plain !== null) {
       await navigator.clipboard.writeText(plain);
+      logActivity('credential_copy', cred.service_name, cred.service_url ?? undefined);
       setCopied(id);
       setTimeout(() => setCopied(null), 2000);
       // Auto-clear clipboard after 30s
@@ -764,6 +821,179 @@ function CredentialVaultSection(): JSX.Element {
   );
 }
 
+// ── Profile Settings Section ────────────────────────────────────────────────
+
+const THEME_COLORS = [
+  { value: '#57c3ff', label: 'Blue' },
+  { value: '#8b5cf6', label: 'Purple' },
+  { value: '#22c55e', label: 'Green' },
+  { value: '#f59e0b', label: 'Amber' },
+  { value: '#ef4444', label: 'Red' },
+  { value: '#ec4899', label: 'Pink' },
+  { value: '#06b6d4', label: 'Cyan' },
+  { value: '#f97316', label: 'Orange' },
+];
+
+const DEFAULT_PAGES = [
+  { value: 'api', label: 'API & Transfer' },
+  { value: 'profiles', label: 'Browser Profiles' },
+  { value: 'clients', label: 'Clients' },
+  { value: 'portal', label: 'Client Portal' },
+  { value: 'projects', label: 'Projects' },
+  { value: 'deliverables', label: 'Deliverables' },
+];
+
+function ProfileSettingsSection(): JSX.Element {
+  const { activeProfile } = useBrowserProfile();
+  const { user } = useAuth();
+  const { logActivity } = useProfileActivity();
+  const [expanded, setExpanded] = useState(false);
+  const [themeColor, setThemeColor] = useState(activeProfile?.icon_color ?? '#57c3ff');
+  const [defaultPage, setDefaultPage] = useState('api');
+  const [notifyActivity, setNotifyActivity] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  // Load settings from profile_settings table
+  useEffect(() => {
+    if (!activeProfile?.id || !user?.id) return;
+    (async () => {
+      const sb = getSupabaseClient() as AnySupabase | null;
+      if (!sb) return;
+      const { data } = await sb
+        .from('profile_settings')
+        .select('key, value')
+        .eq('profile_id', activeProfile.id)
+        .eq('owner_id', user.id)
+        .in('key', ['theme_color', 'default_page', 'notify_activity']);
+      if (data) {
+        for (const row of data as { key: string; value: Record<string, unknown> }[]) {
+          if (row.key === 'theme_color' && row.value?.color) setThemeColor(row.value.color as string);
+          if (row.key === 'default_page' && row.value?.page) setDefaultPage(row.value.page as string);
+          if (row.key === 'notify_activity') setNotifyActivity(!!row.value?.enabled);
+        }
+      }
+      setLoaded(true);
+    })();
+  }, [activeProfile?.id, user?.id]);
+
+  async function saveSetting(key: string, value: Record<string, unknown>): Promise<void> {
+    if (!activeProfile?.id || !user?.id) return;
+    const sb = getSupabaseClient() as AnySupabase | null;
+    if (!sb) return;
+    setSaving(true);
+    await sb.from('profile_settings').upsert({
+      profile_id: activeProfile.id,
+      owner_id: user.id,
+      key,
+      value,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'profile_id,key' });
+    setSaving(false);
+  }
+
+  function handleThemeChange(color: string): void {
+    setThemeColor(color);
+    saveSetting('theme_color', { color });
+    logActivity('settings_change', `Theme color → ${color}`);
+  }
+
+  function handleDefaultPageChange(page: string): void {
+    setDefaultPage(page);
+    saveSetting('default_page', { page });
+    logActivity('settings_change', `Default page → ${page}`);
+  }
+
+  function handleNotifyToggle(): void {
+    const next = !notifyActivity;
+    setNotifyActivity(next);
+    saveSetting('notify_activity', { enabled: next });
+    logActivity('settings_change', `Activity notifications → ${next ? 'on' : 'off'}`);
+  }
+
+  return (
+    <section className="admin-card" style={{ marginTop: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setExpanded(!expanded)}>
+        <h2 className="admin-card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          Profile Settings
+          <span style={{ fontSize: 10, fontWeight: 400, color: 'var(--text-tertiary, #64748b)' }}>
+            — {activeProfile?.name ?? 'Personal'}
+          </span>
+        </h2>
+        <span style={{ fontSize: 11, color: 'var(--text-tertiary, #64748b)' }}>{expanded ? 'Collapse' : 'Expand'}</span>
+      </div>
+
+      {expanded && loaded && (
+        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Theme Color */}
+          <div>
+            <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-tertiary, #64748b)', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 6 }}>
+              Theme Color
+            </label>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {THEME_COLORS.map(c => (
+                <button
+                  key={c.value}
+                  type="button"
+                  onClick={() => handleThemeChange(c.value)}
+                  title={c.label}
+                  style={{
+                    width: 28, height: 28, borderRadius: 6, cursor: 'pointer',
+                    background: c.value, border: themeColor === c.value ? '2px solid #fff' : '2px solid transparent',
+                    outline: themeColor === c.value ? `2px solid ${c.value}` : 'none',
+                    transition: 'all 0.15s',
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Default Landing Page */}
+          <div>
+            <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-tertiary, #64748b)', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 6 }}>
+              Default Landing Page
+            </label>
+            <select
+              className="modal-field"
+              value={defaultPage}
+              onChange={e => handleDefaultPageChange(e.target.value)}
+              style={{ fontSize: 11, maxWidth: 220 }}
+            >
+              {DEFAULT_PAGES.map(p => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Activity Notifications Toggle */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button
+              type="button"
+              onClick={handleNotifyToggle}
+              style={{
+                width: 36, height: 20, borderRadius: 10, cursor: 'pointer',
+                background: notifyActivity ? '#22c55e' : 'rgba(255,255,255,0.08)',
+                border: 'none', position: 'relative', transition: 'background 0.2s',
+              }}
+            >
+              <span style={{
+                position: 'absolute', top: 2, left: notifyActivity ? 18 : 2,
+                width: 16, height: 16, borderRadius: '50%',
+                background: '#fff', transition: 'left 0.2s',
+              }} />
+            </button>
+            <span style={{ fontSize: 11, color: 'var(--text-secondary, #94a3b8)' }}>
+              Activity notifications
+            </span>
+          </div>
+
+          {saving && <span style={{ fontSize: 9, color: 'var(--text-tertiary, #64748b)' }}>Saving...</span>}
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ── Activity Log Section ─────────────────────────────────────────────────────
 
 function ActivityLogSection(): JSX.Element {
@@ -776,6 +1006,15 @@ function ActivityLogSection(): JSX.Element {
     project_open: '#22c55e',
     file_upload: '#f59e0b',
     profile_switch: '#8b5cf6',
+    bookmark_add: '#06b6d4',
+    bookmark_remove: '#ef4444',
+    credential_add: '#f59e0b',
+    credential_reveal: '#ec4899',
+    credential_copy: '#84cc16',
+    vault_unlock: '#22c55e',
+    bookmark_export: '#6366f1',
+    bookmark_import: '#6366f1',
+    settings_change: '#94a3b8',
   };
 
   return (
